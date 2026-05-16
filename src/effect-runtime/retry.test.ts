@@ -65,4 +65,23 @@ describe("effect runtime kernel", () => {
     expect(operation).toHaveBeenCalledTimes(1);
     expect(sleep).not.toHaveBeenCalled();
   });
+
+  it("stops retrying when the predicate rejects the failure", async () => {
+    const sleep = vi.fn(async () => undefined);
+    const error = new Error("validation failed");
+    const operation = vi.fn<() => Promise<string>>().mockRejectedValue(error);
+
+    await expect(
+      runRetryingPromise({
+        operation,
+        maxAttempts: 3,
+        shouldRetry: () => false,
+        resolveDelayMs: () => 25,
+        sleep,
+      }),
+    ).rejects.toBe(error);
+
+    expect(operation).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
 });
