@@ -1624,19 +1624,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-swift-build-v2-${{ steps.swift-toolchain.outputs.key }}-
 
-      - name: Reset Sparkle binary artifact cache
+      - name: Reset Swift binary artifact cache
         run: |
           set -euo pipefail
           # SwiftPM can restore a stale binary-artifact cache where the
           # Sparkle.xcframework directory exists without its Info.plist.
-          # Clear Sparkle from both cache layers so the release build resolves
-          # the binary artifact from Package.resolved instead of reusing it.
-          rm -rf apps/macos/.build/artifacts/sparkle "$HOME/Library/Caches/org.swift.swiftpm/artifacts/sparkle"
+          # Clear the restored build workspace plus Sparkle's shared artifact
+          # cache so the release build resolves artifacts from Package.resolved.
+          rm -rf apps/macos/.build "$HOME/Library/Caches/org.swift.swiftpm/artifacts/sparkle"
 
       - name: Preserve Swift build cache hit
         if: steps.swift-build-cache.outputs.cache-hit == 'true'
         run: |
           set -euo pipefail
+          if [ ! -d apps/macos/.build ]; then
+            echo "Swift build cache was reset; skipping mtime preservation."
+            exit 0
+          fi
           # Exact source-hash cache hits already match these inputs; checkout
           # mtimes are the only reason SwiftPM rebuilds cached products.
           find apps/macos/Sources apps/macos/Tests apps/shared/OpenClawKit/Sources apps/swabble/Sources apps/macos/.build/checkouts \
