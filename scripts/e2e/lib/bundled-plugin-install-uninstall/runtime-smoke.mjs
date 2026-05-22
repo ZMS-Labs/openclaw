@@ -252,7 +252,9 @@ async function httpOk(port, pathName) {
 
 async function assertHttpOk(port, pathName) {
   const result = await retryHttpProbe(port, pathName);
-  if (result.ok) return;
+  if (result.ok) {
+    return;
+  }
   throw new Error(result.message);
 }
 
