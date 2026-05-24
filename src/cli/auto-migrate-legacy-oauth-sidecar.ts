@@ -2,18 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveOAuthDir, resolveStateDir } from "../config/paths.js";
 import { resolveCliArgvInvocation } from "./argv-invocation.js";
-import { hasFlag } from "./argv.js";
 import { hasJsonOutputFlag } from "./json-output-mode.js";
 
 const DECLINE_MARKER_FILENAME = "legacy-oauth-sidecar-migration-declined";
 
 const SKIPPED_PRIMARIES = new Set(["doctor", "update", "help", "completion", "version"]);
-
-const NO_PROMPT_FLAGS = ["--non-interactive", "--yes", "--no-input", "--force"] as const;
-
-type AutoMigrateInteractivePrompter = {
-  confirm: (params: { message: string; initialValue?: boolean }) => Promise<boolean | symbol>;
-};
 
 function hasSidecarFiles(env: NodeJS.ProcessEnv): boolean {
   const sidecarDir = path.join(resolveOAuthDir(env), "auth-profiles");
@@ -38,6 +31,8 @@ function shouldSkip(params: {
   if (process.platform !== "darwin") {
     return true;
   }
+  // TTY check keeps the macOS Keychain dialog from appearing on cron/launchd
+  // runs where there's no human seated to consent.
   if (!params.isInteractiveTty()) {
     return true;
   }
@@ -58,13 +53,10 @@ function shouldSkip(params: {
   if (invocation.primary && SKIPPED_PRIMARIES.has(invocation.primary)) {
     return true;
   }
+  // Don't pop a Keychain dialog mid-`--json` pipeline; consumers want clean
+  // output, and `openclaw doctor --fix` is the documented retry path.
   if (hasJsonOutputFlag(params.argv)) {
     return true;
-  }
-  for (const flag of NO_PROMPT_FLAGS) {
-    if (hasFlag(params.argv, flag)) {
-      return true;
-    }
   }
   if (!hasSidecarFiles(env)) {
     return true;
@@ -78,7 +70,6 @@ function shouldSkip(params: {
 export async function maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli(params: {
   argv: string[];
   env?: NodeJS.ProcessEnv;
-  prompter?: AutoMigrateInteractivePrompter;
   isInteractiveTty?: () => boolean;
 }): Promise<void> {
   const env = params.env ?? process.env;
@@ -91,40 +82,28 @@ export async function maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli(params:
   const [
     { readBestEffortConfig },
     { hasMigratableLegacyOAuthSidecarStores, maybeRepairLegacyOAuthSidecarProfiles },
-    clack,
   ] = await Promise.all([
     import("../config/io.js"),
     import("../commands/doctor-auth-oauth-sidecar.js"),
-    import("@clack/prompts"),
   ]);
-  const prompter = params.prompter ?? { confirm: (p) => clack.confirm(p) };
 
   try {
     const cfg = await readBestEffortConfig();
     if (!hasMigratableLegacyOAuthSidecarStores({ cfg, env })) {
       return;
     }
+    // Silent runtime heal: no in-CLI confirm. The macOS Keychain dialog is
+    // the only consent surface — on Allow we migrate inline; on Deny or any
+    // decryption failure the result is zero changes and we write a permanent
+    // marker so the next CLI run does not re-trigger the OS dialog.
+    // `openclaw doctor --fix` remains the explicit retry path.
     const result = await maybeRepairLegacyOAuthSidecarProfiles({
       cfg,
       env,
-      prompter: {
-        confirmAutoFix: async (p) => {
-          const answer = await prompter.confirm({
-            message: typeof p.message === "string" ? p.message : String(p.message),
-            initialValue: p.initialValue ?? true,
-          });
-          if (clack.isCancel(answer) || !answer) {
-            return false;
-          }
-          return answer;
-        },
-      },
+      emitNotes: false,
+      prompter: { confirmAutoFix: async () => true },
     });
 
-    // Any prompted-but-no-changes outcome (decline, Ctrl+C, Keychain "Deny",
-    // decryption failure) must write the marker; without it the next CLI run
-    // re-prompts and re-triggers the Keychain dialog. `openclaw doctor --fix`
-    // is the documented retry path.
     if (result.changes.length === 0) {
       const markerPath = resolveDeclineMarkerPath(env);
       fs.mkdirSync(path.dirname(markerPath), { recursive: true });

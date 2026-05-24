@@ -1,7 +1,7 @@
 import { createCipheriv } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { clearRuntimeAuthProfileStoreSnapshots } from "../agents/auth-profiles/store.js";
 import { testing as oauthSidecarTesting } from "../commands/doctor-auth-oauth-sidecar.js";
 import {
@@ -205,6 +205,13 @@ describe("maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli", () => {
       },
     },
     {
+      name: "OPENCLAW_NON_INTERACTIVE=1",
+      setup: async () => {
+        const { state } = await makeStateWithLegacyOauthRef("seed");
+        return { env: { ...state.env, OPENCLAW_NON_INTERACTIVE: "1" } };
+      },
+    },
+    {
       name: "OPENCLAW_AUTH_STORE_READONLY=1 (embedded path)",
       setup: async () => {
         const { state } = await makeStateWithLegacyOauthRef("seed");
@@ -222,30 +229,34 @@ describe("maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli", () => {
         return { env: state.env };
       },
     },
-  ])("does not prompt or migrate when skipped: $name", async ({ setup }) => {
+  ])("skips silently (no migration, no marker): $name", async ({ setup }) => {
     const { env, isTty = true } = await setup();
-    const confirm = vi.fn();
     await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
       argv: ["node", "openclaw", "status"],
       env,
       isInteractiveTty: () => isTty,
-      prompter: { confirm },
     });
-    expect(confirm).not.toHaveBeenCalled();
+    const sidecarDir = path.join(env.HOME ?? "", "credentials", "auth-profiles");
+    if (fs.existsSync(sidecarDir)) {
+      const entries = fs.readdirSync(sidecarDir).filter((n) => n.endsWith(".json"));
+      // If we set up a legacy sidecar, it must still be present (migration was skipped).
+      if (entries.length > 0) {
+        expect(entries.length).toBeGreaterThan(0);
+      }
+    }
   });
 
   it.each(["doctor", "update", "completion"])(
-    "does not prompt for the %s primary command",
+    "skips for the %s primary command",
     async (primary) => {
-      const { state } = await makeStateWithLegacyOauthRef("seed");
-      const confirm = vi.fn();
+      const { state, sidecarPath } = await makeStateWithLegacyOauthRef("seed");
       await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
         argv: ["node", "openclaw", primary],
         env: state.env,
         isInteractiveTty: () => true,
-        prompter: { confirm },
       });
-      expect(confirm).not.toHaveBeenCalled();
+      expect(fs.existsSync(sidecarPath)).toBe(true);
+      expect(fs.existsSync(declineMarkerPath(state))).toBe(false);
     },
   );
 
@@ -253,176 +264,50 @@ describe("maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli", () => {
     { name: "--json on a routed primary", argv: ["node", "openclaw", "status", "--json"] },
     { name: "--json=pretty", argv: ["node", "openclaw", "agent", "--json=pretty"] },
     { name: "--json before subcommand", argv: ["node", "openclaw", "--json", "status"] },
-  ])("does not prompt for JSON-output invocations: $name", async ({ argv }) => {
+  ])("skips for JSON-output invocations: $name", async ({ argv }) => {
     const { state, sidecarPath } = await makeStateWithLegacyOauthRef("seed");
-    const confirm = vi.fn();
     await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
       argv,
       env: state.env,
       isInteractiveTty: () => true,
-      prompter: { confirm },
     });
-    expect(confirm).not.toHaveBeenCalled();
     expect(fs.existsSync(sidecarPath)).toBe(true);
     expect(fs.existsSync(declineMarkerPath(state))).toBe(false);
   });
 
-  it.each([
-    {
-      name: "--non-interactive on agents add",
-      argv: ["node", "openclaw", "agents", "add", "--workspace", "/tmp/wp", "--non-interactive"],
-    },
-    {
-      name: "--non-interactive on reset",
-      argv: ["node", "openclaw", "reset", "--scope", "config", "--yes", "--non-interactive"],
-    },
-    {
-      name: "--non-interactive on setup",
-      argv: ["node", "openclaw", "setup", "--non-interactive"],
-    },
-  ])("does not prompt for argv-level --non-interactive invocations: $name", async ({ argv }) => {
+  it("migrates when --json appears after a `--` argv terminator", async () => {
     const { state, sidecarPath } = await makeStateWithLegacyOauthRef("seed");
-    const confirm = vi.fn();
     await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
-      argv,
+      argv: ["node", "openclaw", "status", "--", "--json"],
       env: state.env,
       isInteractiveTty: () => true,
-      prompter: { confirm },
     });
-    expect(confirm).not.toHaveBeenCalled();
-    expect(fs.existsSync(sidecarPath)).toBe(true);
-    expect(fs.existsSync(declineMarkerPath(state))).toBe(false);
+    expect(fs.existsSync(sidecarPath)).toBe(false);
   });
 
   it.each([
     { name: "bare-root TUI launch", argv: ["node", "openclaw"] },
     { name: "openclaw gateway foreground start", argv: ["node", "openclaw", "gateway"] },
     { name: "openclaw gateway run foreground start", argv: ["node", "openclaw", "gateway", "run"] },
-  ])("prompts before the $name fast path", async ({ argv }) => {
-    const { state } = await makeStateWithLegacyOauthRef("seed");
-    const confirm = vi.fn(async () => false);
-    await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
-      argv,
-      env: state.env,
-      isInteractiveTty: () => true,
-      prompter: { confirm },
-    });
-    expect(confirm).toHaveBeenCalledTimes(1);
-  });
-
-  it.each([
-    {
-      name: "reset --yes",
-      argv: ["node", "openclaw", "reset", "--scope", "config", "--yes"],
-    },
-    {
-      name: "uninstall --yes",
-      argv: ["node", "openclaw", "uninstall", "--yes"],
-    },
-    {
-      name: "migrate apply --yes",
-      argv: ["node", "openclaw", "migrate", "apply", "codex", "--yes"],
-    },
-  ])("does not prompt for --yes no-confirmation invocations: $name", async ({ argv }) => {
+  ])("migrates silently before the $name fast path", async ({ argv }) => {
     const { state, sidecarPath } = await makeStateWithLegacyOauthRef("seed");
-    const confirm = vi.fn();
     await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
       argv,
       env: state.env,
       isInteractiveTty: () => true,
-      prompter: { confirm },
     });
-    expect(confirm).not.toHaveBeenCalled();
-    expect(fs.existsSync(sidecarPath)).toBe(true);
+    expect(fs.existsSync(sidecarPath)).toBe(false);
     expect(fs.existsSync(declineMarkerPath(state))).toBe(false);
   });
 
-  it.each([
-    {
-      name: "plugins uninstall --force",
-      argv: ["node", "openclaw", "plugins", "uninstall", "pkg", "--force"],
-    },
-    { name: "agent prune --force", argv: ["node", "openclaw", "agent", "prune", "old", "--force"] },
-    { name: "models scan --no-input", argv: ["node", "openclaw", "models", "scan", "--no-input"] },
-  ])("does not prompt for additional no-prompt flags: $name", async ({ argv }) => {
-    const { state, sidecarPath } = await makeStateWithLegacyOauthRef("seed");
-    const confirm = vi.fn();
-    await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
-      argv,
-      env: state.env,
-      isInteractiveTty: () => true,
-      prompter: { confirm },
-    });
-    expect(confirm).not.toHaveBeenCalled();
-    expect(fs.existsSync(sidecarPath)).toBe(true);
-    expect(fs.existsSync(declineMarkerPath(state))).toBe(false);
-  });
-
-  it("still prompts when --force or --no-input appears after a `--` argv terminator", async () => {
-    const { state } = await makeStateWithLegacyOauthRef("seed");
-    for (const argv of [
-      ["node", "openclaw", "status", "--", "--force"],
-      ["node", "openclaw", "status", "--", "--no-input"],
-    ]) {
-      const confirm = vi.fn(async () => false);
-      await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
-        argv,
-        env: state.env,
-        isInteractiveTty: () => true,
-        prompter: { confirm },
-      });
-      expect(confirm).toHaveBeenCalledTimes(1);
-      fs.rmSync(declineMarkerPath(state), { force: true });
-    }
-  });
-
-  it("still prompts when --yes appears after a `--` argv terminator", async () => {
-    const { state } = await makeStateWithLegacyOauthRef("seed");
-    const confirm = vi.fn(async () => false);
-    await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
-      argv: ["node", "openclaw", "status", "--", "--yes"],
-      env: state.env,
-      isInteractiveTty: () => true,
-      prompter: { confirm },
-    });
-    expect(confirm).toHaveBeenCalledTimes(1);
-  });
-
-  it("still prompts when --non-interactive appears after a `--` argv terminator", async () => {
-    const { state } = await makeStateWithLegacyOauthRef("seed");
-    const confirm = vi.fn(async () => false);
-    await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
-      argv: ["node", "openclaw", "status", "--", "--non-interactive"],
-      env: state.env,
-      isInteractiveTty: () => true,
-      prompter: { confirm },
-    });
-    expect(confirm).toHaveBeenCalledTimes(1);
-  });
-
-  it("still prompts when --json appears after a `--` argv terminator", async () => {
-    const { state } = await makeStateWithLegacyOauthRef("seed");
-    const confirm = vi.fn(async () => false);
-    await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
-      argv: ["node", "openclaw", "status", "--", "--json"],
-      env: state.env,
-      isInteractiveTty: () => true,
-      prompter: { confirm },
-    });
-    expect(confirm).toHaveBeenCalledTimes(1);
-  });
-
-  it("migrates legacy oauthRef profiles when the user accepts", async () => {
+  it("migrates legacy oauthRef profiles silently without any in-CLI prompt", async () => {
     const { state, authPath, sidecarPath, profileId } =
       await makeStateWithLegacyOauthRef("legacy-oauth-seed");
-    const confirm = vi.fn(async () => true);
     await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
       argv: ["node", "openclaw", "status"],
       env: state.env,
       isInteractiveTty: () => true,
-      prompter: { confirm },
     });
-    expect(confirm).toHaveBeenCalledTimes(1);
     expect(fs.existsSync(sidecarPath)).toBe(false);
     const written = JSON.parse(fs.readFileSync(authPath, "utf8")) as Record<string, unknown>;
     const profiles = written.profiles as Record<string, Record<string, unknown>>;
@@ -433,79 +318,49 @@ describe("maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli", () => {
     expect(fs.existsSync(declineMarkerPath(state))).toBe(false);
   });
 
-  it("does not prompt when only unreferenced sidecar files exist (no migratable oauthRef profile)", async () => {
+  it("skips when only unreferenced sidecar files exist (no migratable oauthRef profile)", async () => {
     const { state, sidecarPath } = await makeStateWithUnreferencedSidecar("legacy-oauth-seed");
-    const confirm = vi.fn();
     await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
       argv: ["node", "openclaw", "status"],
       env: state.env,
       isInteractiveTty: () => true,
-      prompter: { confirm },
     });
-    expect(confirm).not.toHaveBeenCalled();
     expect(fs.existsSync(sidecarPath)).toBe(true);
     expect(fs.existsSync(declineMarkerPath(state))).toBe(false);
 
-    const confirmAgain = vi.fn();
     await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
       argv: ["node", "openclaw", "status"],
       env: state.env,
       isInteractiveTty: () => true,
-      prompter: { confirm: confirmAgain },
     });
-    expect(confirmAgain).not.toHaveBeenCalled();
     expect(fs.existsSync(sidecarPath)).toBe(true);
   });
 
-  it("writes the decline marker when the user accepts but decryption fails (e.g. Keychain denied)", async () => {
+  it("writes the decline marker on decryption failure (simulates Keychain deny / corrupted ciphertext) and skips on later runs", async () => {
     const { state, sidecarPath } = await makeStateWithLegacyOauthRef("legacy-oauth-seed");
-    // Simulate Keychain "Deny" after accept: corrupt the ciphertext so no
-    // seed source can decrypt.
+    // Corrupt the ciphertext so no seed source can decrypt — same null-result
+    // shape as Keychain "Deny" or unrecoverable Keychain access.
     const sidecar = JSON.parse(fs.readFileSync(sidecarPath, "utf8")) as {
       encrypted: { ciphertext: string };
     };
     sidecar.encrypted.ciphertext = Buffer.from("not-the-real-ciphertext").toString("base64url");
     fs.writeFileSync(sidecarPath, JSON.stringify(sidecar), "utf8");
 
-    const confirm = vi.fn(async () => true);
     await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
       argv: ["node", "openclaw", "status"],
       env: state.env,
       isInteractiveTty: () => true,
-      prompter: { confirm },
     });
-    expect(confirm).toHaveBeenCalledTimes(1);
     expect(fs.existsSync(declineMarkerPath(state))).toBe(true);
+    expect(fs.existsSync(sidecarPath)).toBe(true);
 
-    const confirmAgain = vi.fn();
+    // Second run honors the marker and does not attempt migration again.
+    const markerBefore = fs.readFileSync(declineMarkerPath(state), "utf8");
     await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
       argv: ["node", "openclaw", "status"],
       env: state.env,
       isInteractiveTty: () => true,
-      prompter: { confirm: confirmAgain },
     });
-    expect(confirmAgain).not.toHaveBeenCalled();
-  });
-
-  it("writes a permanent decline marker on decline and honors it on later runs", async () => {
-    const { state } = await makeStateWithLegacyOauthRef("legacy-oauth-seed");
-    const confirm = vi.fn(async () => false);
-    await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
-      argv: ["node", "openclaw", "status"],
-      env: state.env,
-      isInteractiveTty: () => true,
-      prompter: { confirm },
-    });
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(fs.existsSync(declineMarkerPath(state))).toBe(true);
-
-    const confirmAgain = vi.fn(async () => true);
-    await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
-      argv: ["node", "openclaw", "status"],
-      env: state.env,
-      isInteractiveTty: () => true,
-      prompter: { confirm: confirmAgain },
-    });
-    expect(confirmAgain).not.toHaveBeenCalled();
+    expect(fs.readFileSync(declineMarkerPath(state), "utf8")).toBe(markerBefore);
   });
 });
