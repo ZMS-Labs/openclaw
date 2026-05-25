@@ -358,6 +358,7 @@ describe("AgentRuntimePlan", () => {
 
     expect(resolveProviderRuntimePluginHandleMock).toHaveBeenCalledWith({
       provider: "openai",
+      modelId: "gpt-5.4",
       config: suppliedHandle.config,
       workspaceDir: "/tmp/openclaw-runtime-plan",
       env: process.env,
@@ -405,6 +406,7 @@ describe("AgentRuntimePlan", () => {
 
     expect(resolveProviderRuntimePluginHandleMock).toHaveBeenCalledWith({
       provider: "openai",
+      modelId: "gpt-5.4",
       config: {},
       workspaceDir: "/tmp/openclaw-runtime-plan",
       env: process.env,
