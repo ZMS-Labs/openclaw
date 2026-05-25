@@ -699,6 +699,51 @@ describe("runMemoryFlushIfNeeded", () => {
     expect(compactCall.sandboxSessionKey).toBe("agent:main:telegram:default:direct:12345");
   });
 
+  it("continues inbound dispatch after recoverable native thread binding compaction failures", async () => {
+    registerMemoryFlushPlanResolverForTest(() => ({
+      softThresholdTokens: 1,
+      forceFlushTranscriptBytes: 1_000_000_000,
+      reserveTokensFloor: 0,
+      prompt: "Pre-compaction memory flush.\nNO_REPLY",
+      systemPrompt: "Write memory to memory/YYYY-MM-DD.md.",
+      relativePath: "memory/2023-11-14.md",
+    }));
+    compactEmbeddedPiSessionMock.mockResolvedValueOnce({
+      ok: false,
+      compacted: false,
+      reason: "thread not found: thread-1",
+      failure: { reason: "stale_thread_binding" },
+    });
+    const sessionEntry: SessionEntry = {
+      sessionId: "session",
+      updatedAt: Date.now(),
+      totalTokens: 1_000,
+      totalTokensFresh: false,
+    };
+    const replyOperation = createReplyOperation();
+
+    const entry = await runPreflightCompactionIfNeeded({
+      cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
+      followupRun: createTestFollowupRun({
+        sessionId: "session",
+        sessionKey: "agent:main:telegram:group:123",
+      }),
+      defaultModel: "anthropic/claude-opus-4-6",
+      agentCfgContextTokens: 100,
+      sessionEntry,
+      sessionStore: { "agent:main:telegram:group:123": sessionEntry },
+      sessionKey: "agent:main:telegram:group:123",
+      storePath: path.join(rootDir, "sessions.json"),
+      isHeartbeat: false,
+      replyOperation,
+    });
+
+    expect(entry).toBe(sessionEntry);
+    expect(compactEmbeddedPiSessionMock).toHaveBeenCalledTimes(1);
+    expect(incrementCompactionCountMock).not.toHaveBeenCalled();
+    expect(replyOperation.setPhase).toHaveBeenCalledWith("preflight_compacting");
+  });
+
   it("updates the active preflight run after transcript rotation", async () => {
     const sessionFile = path.join(rootDir, "session.jsonl");
     const successorFile = path.join(rootDir, "session-rotated.jsonl");
