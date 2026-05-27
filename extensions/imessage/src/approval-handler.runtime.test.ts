@@ -10,7 +10,7 @@ vi.mock("./send.js", () => ({
 }));
 
 describe("imessageApprovalNativeRuntime", () => {
-  it("renders allowed thumbs-only reactions in pending exec approvals", async () => {
+  it("renders shared reactions in pending exec approvals", async () => {
     const payload = await imessageApprovalNativeRuntime.presentation.buildPendingPayload({
       cfg: {} as never,
       accountId: "default",
@@ -56,7 +56,7 @@ describe("imessageApprovalNativeRuntime", () => {
     expect(payload.allowedDecisions).toEqual(["allow-once", "deny"]);
   });
 
-  it("renders allowed thumbs-only reactions in pending plugin approvals", async () => {
+  it("renders shared reactions in pending plugin approvals", async () => {
     const payload = await imessageApprovalNativeRuntime.presentation.buildPendingPayload({
       cfg: {} as never,
       accountId: "default",
@@ -110,6 +110,7 @@ describe("imessageApprovalNativeRuntime", () => {
     expect(payload.text).toContain("Plugin approval required");
     expect(payload.text).toContain("Reply with: /approve plugin:abc allow-once|allow-always|deny");
     expect(payload.text).toContain("👍 Allow Once");
+    expect(payload.text).toContain("♾️ Allow Always");
     expect(payload.text).toContain("👎 Deny");
     expect(payload.text).not.toContain("/approve <id>");
     expect(payload.allowedDecisions).toEqual(["allow-once", "allow-always", "deny"]);
