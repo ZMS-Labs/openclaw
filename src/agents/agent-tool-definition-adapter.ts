@@ -238,6 +238,25 @@ function sanitizeToolFailureParamsForLog(toolName: string, value: unknown): unkn
   return toolName === "exec" ? sanitizeExecFailureParamsForLog(value) : value;
 }
 
+function readToolResultField(
+  record: Record<string, unknown>,
+  field: "content" | "details",
+): unknown {
+  try {
+    return record[field];
+  } catch {
+    throw new Error(`Tool returned unreadable result ${field}`);
+  }
+}
+
+function hasToolResultField(record: Record<string, unknown>, field: "details"): boolean {
+  try {
+    return field in record;
+  } catch {
+    throw new Error(`Tool returned unreadable result ${field}`);
+  }
+}
+
 function describeToolFailureInputs(params: {
   toolName: string;
   rawParams: unknown;
@@ -261,11 +280,13 @@ function normalizeToolExecutionResult(params: {
   const { toolName, result } = params;
   if (result && typeof result === "object") {
     const record = result as Record<string, unknown>;
-    if (Array.isArray(record.content)) {
+    if (Array.isArray(readToolResultField(record, "content"))) {
       return result as AgentToolResult<unknown>;
     }
     logDebug(`tools: ${toolName} returned non-standard result (missing content[]); coercing`);
-    const details = "details" in record ? record.details : record;
+    const details = hasToolResultField(record, "details")
+      ? readToolResultField(record, "details")
+      : record;
     const safeDetails = details ?? { status: "ok", tool: toolName };
     return payloadTextResult(safeDetails);
   }

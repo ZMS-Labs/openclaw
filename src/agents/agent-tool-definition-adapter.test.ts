@@ -107,6 +107,62 @@ describe("agent tool definition adapter", () => {
     expect(result.content[0]?.type).toBe("text");
     expect((result.content[0] as { text?: string }).text).toContain('"count"');
   });
+
+  it("reports unreadable tool result content without leaking getter errors", async () => {
+    const rawResult = {};
+    Object.defineProperty(rawResult, "content", {
+      enumerable: true,
+      get() {
+        throw new Error("fuzzplugin content getter exploded");
+      },
+    });
+    const tool = {
+      name: "mockplugin_result",
+      label: "Mock Plugin Result",
+      description: "returns unreadable content",
+      parameters: Type.Object({}),
+      execute: (async () => rawResult) as unknown as AgentTool["execute"],
+    } satisfies AgentTool;
+
+    const result = await executeTool(tool, "call-unreadable-content");
+    const details = result.details as
+      | { status?: string; tool?: string; error?: string }
+      | undefined;
+    expect(details).toMatchObject({
+      status: "error",
+      tool: "mockplugin_result",
+      error: "Tool returned unreadable result content",
+    });
+    expect(JSON.stringify(result)).not.toContain("fuzzplugin content getter exploded");
+  });
+
+  it("reports unreadable tool result details without leaking getter errors", async () => {
+    const rawResult = {};
+    Object.defineProperty(rawResult, "details", {
+      enumerable: true,
+      get() {
+        throw new Error("fuzzplugin details getter exploded");
+      },
+    });
+    const tool = {
+      name: "mockplugin_result",
+      label: "Mock Plugin Result",
+      description: "returns unreadable details",
+      parameters: Type.Object({}),
+      execute: (async () => rawResult) as unknown as AgentTool["execute"],
+    } satisfies AgentTool;
+
+    const result = await executeTool(tool, "call-unreadable-details");
+    const details = result.details as
+      | { status?: string; tool?: string; error?: string }
+      | undefined;
+    expect(details).toMatchObject({
+      status: "error",
+      tool: "mockplugin_result",
+      error: "Tool returned unreadable result details",
+    });
+    expect(JSON.stringify(result)).not.toContain("fuzzplugin details getter exploded");
+  });
 });
 
 // ---------------------------------------------------------------------------
