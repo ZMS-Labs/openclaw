@@ -34,6 +34,12 @@ function toRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
 }
 
+function resolveStreamContentIndex(record: Record<string, unknown>): number {
+  return typeof record.contentIndex === "number" && Number.isInteger(record.contentIndex)
+    ? record.contentIndex
+    : 0;
+}
+
 function resolveContextToolNames(context: Parameters<StreamFn>[1]): Set<string> {
   const tools = (context as { tools?: unknown }).tools;
   if (!Array.isArray(tools)) {
@@ -323,8 +329,8 @@ function wrapPlainTextToolCallStream(
   void (async () => {
     const bufferedTextEvents: unknown[] = [];
     let bufferedText = "";
-    let flushedTextEvents = false;
-    let replacementSupersedesFlushedText = false;
+    const flushedTextContentIndexes = new Set<number>();
+    let replacementClearContentIndex: number | undefined;
     let ended = false;
     const endStream = () => {
       if (!ended) {
@@ -334,18 +340,25 @@ function wrapPlainTextToolCallStream(
     };
     const flushBufferedTextEvents = () => {
       const events = bufferedTextEvents.splice(0);
-      if (events.length > 0) {
-        flushedTextEvents = true;
-      }
       for (const event of events) {
+        const record = toRecord(event);
+        if (
+          record &&
+          (record.type === "text_start" ||
+            record.type === "text_delta" ||
+            record.type === "text_end")
+        ) {
+          flushedTextContentIndexes.add(resolveStreamContentIndex(record));
+        }
         stream.push(event);
       }
       bufferedText = "";
+      replacementClearContentIndex = undefined;
     };
-    const emitTextReplacementClear = (message: Record<string, unknown>) => {
+    const emitTextReplacementClear = (message: Record<string, unknown>, contentIndex: number) => {
       stream.push({
         type: "text_delta",
-        contentIndex: 0,
+        contentIndex,
         delta: "",
         replace: true,
         partial: { ...message, content: [] },
@@ -359,11 +372,12 @@ function wrapPlainTextToolCallStream(
 
         if (type === "text_start" || type === "text_delta" || type === "text_end") {
           const replacesBufferedText = type === "text_delta" && record?.replace === true;
+          const contentIndex = record ? resolveStreamContentIndex(record) : 0;
           if (replacesBufferedText) {
             bufferedTextEvents.splice(0);
-            if (flushedTextEvents) {
-              replacementSupersedesFlushedText = true;
-            }
+            replacementClearContentIndex = flushedTextContentIndexes.has(contentIndex)
+              ? contentIndex
+              : undefined;
           }
           bufferedTextEvents.push(event);
           if (typeof record?.delta === "string") {
@@ -387,8 +401,8 @@ function wrapPlainTextToolCallStream(
           if (promotedMessage) {
             bufferedTextEvents.splice(0);
             bufferedText = "";
-            if (replacementSupersedesFlushedText) {
-              emitTextReplacementClear(promotedMessage);
+            if (replacementClearContentIndex !== undefined) {
+              emitTextReplacementClear(promotedMessage, replacementClearContentIndex);
             }
             emitPromotedToolCallEvents(stream, promotedMessage);
             stream.push({ ...record, reason: "toolUse", message: promotedMessage });

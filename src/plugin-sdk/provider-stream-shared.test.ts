@@ -158,6 +158,71 @@ describe("createPlainTextToolCallCompatWrapper", () => {
     ]);
     expect(events.at(-1)).toMatchObject({ type: "done", reason: "toolUse" });
   });
+
+  it("does not clear flushed text from a different content index", async () => {
+    const toolCallText = '[tool:read] {"path":"README.md"}';
+    const finalMessage: AssistantMessage = {
+      role: "assistant",
+      api: "openai-compatible",
+      provider: "test-provider",
+      model: "test-model",
+      content: [{ type: "text", text: toolCallText }],
+      stopReason: "stop",
+      timestamp: 123,
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+      },
+    };
+    const emptyPartial: AssistantMessage = { ...finalMessage, content: [] };
+    const baseStreamFn: StreamFn = () =>
+      ({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: "text_delta",
+            contentIndex: 0,
+            delta: "I will check.",
+            partial: emptyPartial,
+          };
+          yield {
+            type: "text_delta",
+            contentIndex: 1,
+            delta: toolCallText,
+            replace: true,
+            partial: emptyPartial,
+          };
+          yield { type: "done", reason: "stop", message: finalMessage };
+        },
+        result: async () => finalMessage,
+      }) as ReturnType<StreamFn>;
+
+    const wrapped = createPlainTextToolCallCompatWrapper(baseStreamFn);
+    const stream = await Promise.resolve(
+      wrapped({} as never, { tools: [{ name: "read" }] } as never, {}),
+    );
+    const events: Array<Record<string, unknown>> = [];
+    for await (const event of stream as AsyncIterable<Record<string, unknown>>) {
+      events.push(event);
+    }
+
+    expect(events.filter((event) => event.type === "text_delta")).toMatchObject([
+      { contentIndex: 0, delta: "I will check." },
+    ]);
+    expect(events.some((event) => event.type === "text_delta" && event.replace === true)).toBe(
+      false,
+    );
+    expect(events.at(-1)).toMatchObject({ type: "done", reason: "toolUse" });
+  });
 });
 
 describe("createDeepSeekV4OpenAICompatibleThinkingWrapper", () => {
