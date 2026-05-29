@@ -85,7 +85,7 @@ async function expectPathMissing(targetPath: string): Promise<void> {
 const mocks = vi.hoisted(() => ({
   callGateway: vi.fn(),
   onAgentEvent: vi.fn(() => noop),
-  getAgentRunContext: vi.fn(() => undefined),
+  getAgentRunContext: vi.fn<() => { runId?: string } | undefined>(() => undefined),
   getRuntimeConfig: vi.fn(() => ({
     agents: { defaults: { subagents: { archiveAfterMinutes: 0 } } },
     session: { mainKey: "main", scope: "per-sender" as const },
@@ -2228,7 +2228,9 @@ describe("subagent registry seam flow", () => {
         updatedAt: startedAt + MAX_SUBAGENT_RUN_TIMEOUT_MS,
       },
     });
-    mocks.getAgentRunContext.mockReturnValue({ runId: "run-large-timeout-fallback-late-success" });
+    mocks.getAgentRunContext.mockReturnValue({
+      runId: "run-large-timeout-fallback-late-success",
+    });
 
     registerRun({
       runId: "run-large-timeout-fallback-late-success",

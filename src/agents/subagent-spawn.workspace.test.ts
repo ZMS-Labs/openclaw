@@ -19,12 +19,16 @@ type TestConfig = {
   };
 };
 
+type SubagentRunRecord = ReturnType<
+  typeof import("./subagent-registry.js").listSubagentRunsForRequester
+>[number];
+
 const hoisted = vi.hoisted(() => ({
   callGatewayMock: vi.fn(),
   configOverride: {} as Record<string, unknown>,
   registerSubagentRunMock: vi.fn(),
   startSubagentRunCompletionWaitMock: vi.fn(),
-  listSubagentRunsForRequesterMock: vi.fn(() => []),
+  listSubagentRunsForRequesterMock: vi.fn<() => SubagentRunRecord[]>(() => []),
   resolveSandboxRuntimeStatusMock: vi.fn<
     (params: { sessionKey?: string }) => { sandboxed: boolean }
   >(() => ({ sandboxed: false })),
@@ -82,6 +86,20 @@ function findLastSessionDeleteCall() {
         };
       }
     | undefined;
+}
+
+function createTerminalTimeoutRun(runId: string): SubagentRunRecord {
+  return {
+    runId,
+    childSessionKey: "agent:main:subagent:child",
+    requesterSessionKey: "agent:main:main",
+    requesterDisplayKey: "main",
+    task: "timeout before child acceptance",
+    cleanup: "keep",
+    createdAt: 0,
+    endedAt: 1000,
+    outcome: { status: "timeout" },
+  };
 }
 
 async function expectAcceptedWorkspace(params: { agentId: string; expectedWorkspaceDir: string }) {
@@ -336,11 +354,7 @@ describe("spawnSubagentDirect workspace inheritance", () => {
 
   it("reports a pre-acceptance registry timeout as a spawn error", async () => {
     hoisted.listSubagentRunsForRequesterMock.mockReturnValue([
-      {
-        runId: "run-thread-register-fail",
-        endedAt: 1000,
-        outcome: { status: "timeout" },
-      },
+      createTerminalTimeoutRun("run-thread-register-fail"),
     ]);
     hoisted.callGatewayMock.mockImplementation(
       async (request: {
@@ -386,11 +400,7 @@ describe("spawnSubagentDirect workspace inheritance", () => {
 
   it("does not report accepted when the registry timed out before acceptance was observed", async () => {
     hoisted.listSubagentRunsForRequesterMock.mockReturnValue([
-      {
-        runId: "run-thread-register-fail",
-        endedAt: 1000,
-        outcome: { status: "timeout" },
-      },
+      createTerminalTimeoutRun("run-thread-register-fail"),
     ]);
     hoisted.callGatewayMock.mockImplementation(
       async (request: {
@@ -413,7 +423,7 @@ describe("spawnSubagentDirect workspace inheritance", () => {
     const result = await spawnSubagentDirect(
       {
         task: "accepted after provisional timeout",
-        timeout: 8,
+        runTimeoutSeconds: 8,
       },
       {
         agentSessionKey: "agent:main:main",
