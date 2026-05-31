@@ -32,6 +32,7 @@ import {
   uninstallLegacySystemdUnits,
   type SystemdUnitScope,
 } from "../daemon/systemd.js";
+import { isTruthyEnvValue } from "../infra/env.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { VERSION } from "../version.js";
 import { buildGatewayInstallPlan } from "./daemon-install-helpers.js";
@@ -45,6 +46,25 @@ import {
   isServiceRepairExternallyManaged,
   resolveServiceRepairPolicy,
 } from "./doctor-service-repair-policy.js";
+import {
+  UPDATE_IN_PROGRESS_ENV,
+  UPDATE_PARENT_SUPPORTS_DOCTOR_CONFIG_WRITE_ENV,
+} from "./doctor/shared/update-phase.js";
+
+type GatewayServiceConfigRepairOptions = {
+  allowConfigSizeDrop?: boolean;
+  allowExecSecretRefs?: boolean;
+  lastTouchedVersionOverride?: string;
+  preservedLegacyRootKeys?: readonly string[];
+  skipPluginValidation?: boolean;
+};
+
+function shouldSkipLegacyUpdateRepairConfigWrite(env: NodeJS.ProcessEnv): boolean {
+  return (
+    isTruthyEnvValue(env[UPDATE_IN_PROGRESS_ENV]) &&
+    !isTruthyEnvValue(env[UPDATE_PARENT_SUPPORTS_DOCTOR_CONFIG_WRITE_ENV])
+  );
+}
 
 const execFileAsync = promisify(execFile);
 const EXECSTART_REPAIR_CODES = new Set<string>([
@@ -366,16 +386,16 @@ export async function maybeRepairGatewayServiceConfig(
   mode: "local" | "remote",
   runtime: RuntimeEnv,
   prompter: DoctorPrompter,
-  options: { allowExecSecretRefs?: boolean; lastTouchedVersionOverride?: string } = {},
-) {
+  options: GatewayServiceConfigRepairOptions = {},
+): Promise<OpenClawConfig> {
   if (resolveIsNixMode(process.env)) {
     note("Nix mode detected; skip service updates.", "Gateway");
-    return;
+    return cfg;
   }
 
   if (mode === "remote") {
     note("Gateway mode is remote; skipped local service audit.", "Gateway");
-    return;
+    return cfg;
   }
 
   const service = resolveGatewayService();
@@ -386,7 +406,7 @@ export async function maybeRepairGatewayServiceConfig(
     command = null;
   }
   if (!command) {
-    return;
+    return cfg;
   }
   const serviceInstallEnv = buildGatewayServiceRepairEnv(command);
   const serviceWrapperPath = resolveGatewayServiceWrapperPath(command);
@@ -514,7 +534,7 @@ export async function maybeRepairGatewayServiceConfig(
     if (sourceCheckoutWarning !== null && !hasEntrypointMismatch) {
       note(sourceCheckoutWarning, "Gateway service config");
     }
-    return;
+    return cfg;
   }
 
   const serviceRepairPolicy = resolveServiceRepairPolicy();
@@ -546,7 +566,7 @@ export async function maybeRepairGatewayServiceConfig(
 
   if (serviceRepairExternal) {
     note(EXTERNAL_SERVICE_REPAIR_NOTE, "Gateway service config");
-    return;
+    return cfg;
   }
 
   if (serviceRewriteBlocked) {
@@ -554,7 +574,7 @@ export async function maybeRepairGatewayServiceConfig(
       "Gateway service is running; leaving supervisor metadata unchanged. Stop the service first or use `openclaw gateway install --force` when you want to replace the active launcher.",
       "Gateway service config",
     );
-    return;
+    return cfg;
   }
 
   const updateRepairMode = isDoctorUpdateRepairMode(prompter.repairMode);
@@ -568,7 +588,7 @@ export async function maybeRepairGatewayServiceConfig(
       "Update-mode doctor detected gateway service drift but left the live systemd unit unchanged. Review the service file and run `openclaw gateway install --force` when you want OpenClaw to replace operator-owned systemd directives.",
       "Gateway service config",
     );
-    return;
+    return cfg;
   }
 
   const repairMessage = needsAggressive
@@ -596,7 +616,7 @@ export async function maybeRepairGatewayServiceConfig(
         "Gateway service config",
       );
     }
-    return;
+    return cfg;
   }
   const serviceEmbeddedToken = readEmbeddedGatewayToken(command);
   const gatewayTokenForRepair = expectedGatewayToken ?? serviceEmbeddedToken;
@@ -614,6 +634,16 @@ export async function maybeRepairGatewayServiceConfig(
     !configuredGatewayToken &&
     gatewayTokenForRepair
   ) {
+    if (
+      updateRepairWillRewriteWindowsTask &&
+      shouldSkipLegacyUpdateRepairConfigWrite(process.env)
+    ) {
+      note(
+        "Legacy update parent cannot persist gateway.auth.token before service repair; leaving the existing gateway service unchanged.",
+        "Gateway",
+      );
+      return cfg;
+    }
     const nextCfg: OpenClawConfig = {
       ...cfg,
       gateway: {
@@ -629,13 +659,14 @@ export async function maybeRepairGatewayServiceConfig(
       await replaceConfigFile({
         nextConfig: nextCfg,
         afterWrite: { mode: "auto" },
-        ...(options.lastTouchedVersionOverride
-          ? {
-              writeOptions: {
-                lastTouchedVersionOverride: options.lastTouchedVersionOverride,
-              },
-            }
-          : {}),
+        writeOptions: {
+          allowConfigSizeDrop: options.allowConfigSizeDrop === true || updateRepairMode,
+          skipPluginValidation: options.skipPluginValidation === true || updateRepairMode,
+          preservedLegacyRootKeys: options.preservedLegacyRootKeys,
+          ...(options.lastTouchedVersionOverride
+            ? { lastTouchedVersionOverride: options.lastTouchedVersionOverride }
+            : {}),
+        },
       });
       cfgForServiceInstall = nextCfg;
       note(
@@ -646,7 +677,7 @@ export async function maybeRepairGatewayServiceConfig(
       );
     } catch (err) {
       runtime.error(`Failed to persist gateway.auth.token before service repair: ${String(err)}`);
-      return;
+      return cfg;
     }
   }
 
@@ -681,6 +712,7 @@ export async function maybeRepairGatewayServiceConfig(
   } catch (err) {
     runtime.error(`Gateway service update failed: ${String(err)}`);
   }
+  return cfgForServiceInstall;
 }
 
 export async function maybeScanExtraGatewayServices(
