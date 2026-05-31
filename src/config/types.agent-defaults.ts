@@ -268,7 +268,8 @@ export type AgentDefaultsConfig = {
   experimental?: {
     /**
      * Drop heavyweight non-essential default tools for weaker or smaller local
-     * model backends. Experimental preview only.
+     * model backends. When Tool Search is unset, lean runs default larger tool
+     * catalogs behind Tool Search controls. Experimental preview only.
      */
     localModelLean?: boolean;
   };
