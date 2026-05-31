@@ -81,8 +81,8 @@ export const ExecApprovalsNodeGetParamsSchema = Type.Object(
 
 export const NativeExecApprovalRuleSchema = Type.Object(
   {
-    pattern: Type.String(),
-    action: Type.String(),
+    pattern: NonEmptyString,
+    action: NonEmptyString,
     shells: Type.Optional(Type.Array(Type.String())),
     description: Type.Optional(Type.String()),
     enabled: Type.Optional(Type.Boolean()),

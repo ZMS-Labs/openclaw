@@ -74,6 +74,29 @@ describe("exec approvals protocol validators", () => {
     ).toBe(false);
   });
 
+  it("rejects host-native node approval rules with empty required fields", () => {
+    expect(
+      validateExecApprovalsNodeSetParams({
+        nodeId: "node-1",
+        native: {
+          defaultAction: "deny",
+          rules: [{ pattern: "", action: "allow", enabled: true }],
+        },
+        baseHash: "native-hash-1",
+      }),
+    ).toBe(false);
+    expect(
+      validateExecApprovalsNodeSetParams({
+        nodeId: "node-1",
+        native: {
+          defaultAction: "deny",
+          rules: [{ pattern: "echo *", action: "", enabled: true }],
+        },
+        baseHash: "native-hash-1",
+      }),
+    ).toBe(false);
+  });
+
   it("rejects unknown allowlist metadata", () => {
     expect(
       validateExecApprovalsSetParams({
