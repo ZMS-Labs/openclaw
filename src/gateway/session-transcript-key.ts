@@ -34,6 +34,8 @@ function sessionKeyMatchesTranscriptPath(params: {
   key: string;
   targetPath: string;
 }): boolean {
+  // Compare against every transcript candidate for the store target because a
+  // session can move between legacy, per-agent, and explicit sessionFile paths.
   const entry = params.store[params.key];
   if (!entry?.sessionId) {
     return false;
@@ -77,6 +79,8 @@ export function resolveSessionKeyForTranscriptFile(sessionFile: string): string 
       targetPath,
     })
   ) {
+    // Cached keys are accepted only while the current store still proves the
+    // transcript path, so stale cache entries cannot survive session rotation.
     return cachedKey;
   }
 
@@ -134,6 +138,8 @@ export function resolveSessionKeyForTranscriptFile(sessionFile: string): string 
       (a, b) => b.updatedAt - a.updatedAt,
     );
     const [freshestMatch, secondFreshestMatch] = sortedResolvedMatches;
+    // If two distinct sessions are equally fresh for the same path, leave it
+    // unresolved instead of guessing which canonical key should own the file.
     const resolvedKey =
       resolvedMatches.length === 1
         ? freshestMatch?.key
