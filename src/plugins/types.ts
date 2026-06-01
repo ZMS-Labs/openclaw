@@ -1277,14 +1277,20 @@ export type ProviderTransformSystemPromptContext = ProviderSystemPromptContribut
   systemPrompt: string;
 };
 
+/** Text transform registration bag exposed through plugin runtime APIs. */
 export type PluginTextTransformRegistration = PluginTextTransforms;
 
 /** Text-inference provider capability registered by a plugin. */
 export type ProviderPlugin = {
+  /** Stable provider id used in model refs, config keys, and auth profile ids. */
   id: string;
+  /** Owning plugin id when provider registration is projected from a plugin package. */
   pluginId?: string;
+  /** Human-readable provider label for setup, model lists, and diagnostics. */
   label: string;
+  /** Optional public docs path for auth/setup help surfaces. */
   docsPath?: string;
+  /** User-facing provider id aliases accepted by setup/config/model resolution. */
   aliases?: string[];
   /**
    * Internal-only aliases used for runtime/config hook lookup.
@@ -1301,6 +1307,7 @@ export type ProviderPlugin = {
    * vars or setup inputs such as OAuth client id/secret vars.
    */
   envVars?: string[];
+  /** Interactive and non-interactive auth methods offered by this provider. */
   auth: ProviderAuthMethod[];
   /**
    * Legacy text-provider catalog hook.
