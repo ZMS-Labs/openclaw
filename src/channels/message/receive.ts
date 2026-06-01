@@ -31,8 +31,11 @@ export type MessageReceiveContext<TMessage = unknown> = {
   receivedAt: number;
   /** Cancellation signal for downstream receive processing. */
   signal: AbortSignal;
+  /** Returns whether the current policy wants an ack after the supplied pipeline stage. */
   shouldAckAfter(stage: MessageAckStage): boolean;
+  /** Marks the message acknowledged and runs the adapter ack hook at most once. */
   ack(): Promise<void>;
+  /** Marks the message negatively acknowledged and records the normalized failure message. */
   nack(error: unknown): Promise<void>;
 };
 
@@ -43,6 +46,8 @@ export function shouldAckMessageAfterStage(
   policy: MessageAckPolicy,
   stage: MessageAckStage,
 ): boolean {
+  // Ack stages intentionally map one-to-one to policies; "manual" never auto-acks so channel
+  // adapters can own platform-specific acknowledgement timing themselves.
   switch (policy) {
     case "after_receive_record":
       return stage === "receive_record";

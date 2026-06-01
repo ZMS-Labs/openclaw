@@ -441,12 +441,19 @@ export type DeriveDurableFinalDeliveryRequirementsParams = {
   threadId?: string | number | null;
   /** Silent sends require adapters to declare silent final-delivery support. */
   silent?: boolean;
+  /** Whether lifecycle hooks around sends must be preserved by durable delivery. */
   messageSendingHooks?: boolean;
+  /** Whether the planned send uses the structured payload adapter path. */
   payloadTransport?: boolean;
+  /** Whether multiple rendered payloads must be delivered as one durable logical batch. */
   batch?: boolean;
+  /** Whether unknown platform-send outcomes require adapter reconciliation. */
   reconcileUnknownSend?: boolean;
+  /** Whether post-send success hooks must run before the send is considered durable. */
   afterSendSuccess?: boolean;
+  /** Whether commit hooks must run before the final receipt is trusted. */
   afterCommit?: boolean;
+  /** Caller-supplied capabilities that extend the built-in derivation rules. */
   extraCapabilities?: DurableFinalRequirementExtras;
 };
 
