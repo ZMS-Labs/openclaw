@@ -1134,6 +1134,11 @@ export async function runEmbeddedAttempt(
           ]
         : toolsAllowWithForcedRuntimeTools;
     const localModelLeanPreserveToolNames = resolveLocalModelLeanPreserveToolNames({
+      config: params.config,
+      agentId: sessionAgentId,
+      sessionKey: sandboxSessionKey,
+      modelProvider: params.provider,
+      modelId: params.modelId,
       toolNames: effectiveToolsAllow,
       forceMessageTool: params.forceMessageTool,
       sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
@@ -1523,6 +1528,9 @@ export async function runEmbeddedAttempt(
       tools: [...tools, ...normalizedBundledTools],
       config: params.config,
       agentId: sessionAgentId,
+      sessionKey: sandboxSessionKey,
+      modelProvider: params.provider,
+      modelId: params.modelId,
       preserveToolNames: localModelLeanPreserveToolNames,
     });
     const uncompactedToolSchemaProjection = filterRuntimeCompatibleTools(
@@ -1595,6 +1603,9 @@ export async function runEmbeddedAttempt(
       tools: toolSearch.tools,
       config: params.config,
       agentId: sessionAgentId,
+      sessionKey: sandboxSessionKey,
+      modelProvider: params.provider,
+      modelId: params.modelId,
       preserveToolNames: localModelLeanPreserveToolNames,
     });
     const toolSearchSchemaProjection = filterRuntimeCompatibleTools(projectedToolSearchTools);

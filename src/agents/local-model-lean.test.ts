@@ -89,6 +89,99 @@ describe("local model lean tool filtering", () => {
     ]);
   });
 
+  it("keeps media tools explicitly preserved by global tool policy", () => {
+    const cfg: OpenClawConfig = {
+      agents: {
+        defaults: {
+          experimental: {
+            localModelLean: true,
+          },
+        },
+      },
+      tools: {
+        allow: ["image_generate"],
+        alsoAllow: ["pdf"],
+      },
+    };
+
+    expect(
+      filterLocalModelLeanTools({
+        tools: tools(["read", "image_generate", "music_generate", "pdf", "exec"]),
+        config: cfg,
+      }).map((tool) => tool.name),
+    ).toEqual(["read", "image_generate", "pdf", "exec"]);
+  });
+
+  it("keeps media tools explicitly preserved by agent tool policy", () => {
+    const cfg: OpenClawConfig = {
+      agents: {
+        defaults: {
+          experimental: {
+            localModelLean: true,
+          },
+        },
+        list: [
+          {
+            id: "artist",
+            tools: {
+              allow: ["video_generate"],
+              alsoAllow: ["tts"],
+            },
+          },
+        ],
+      },
+    };
+
+    expect(
+      filterLocalModelLeanTools({
+        tools: tools(["read", "image_generate", "tts", "video_generate", "exec"]),
+        config: cfg,
+        agentId: "artist",
+      }).map((tool) => tool.name),
+    ).toEqual(["read", "tts", "video_generate", "exec"]);
+  });
+
+  it("keeps media tools explicitly preserved by provider-scoped tool policy", () => {
+    const cfg: OpenClawConfig = {
+      agents: {
+        defaults: {
+          experimental: {
+            localModelLean: true,
+          },
+        },
+        list: [
+          {
+            id: "artist",
+            tools: {
+              byProvider: {
+                ollama: {
+                  alsoAllow: ["tts"],
+                },
+              },
+            },
+          },
+        ],
+      },
+      tools: {
+        byProvider: {
+          "ollama/qwen3.5:9b": {
+            allow: ["image_generate"],
+          },
+        },
+      },
+    };
+
+    expect(
+      filterLocalModelLeanTools({
+        tools: tools(["read", "image_generate", "music_generate", "tts", "exec"]),
+        config: cfg,
+        agentId: "artist",
+        modelProvider: "ollama",
+        modelId: "qwen3.5:9b",
+      }).map((tool) => tool.name),
+    ).toEqual(["read", "image_generate", "tts", "exec"]);
+  });
+
   it("keeps image understanding while trimming optional media production tools", () => {
     const cfg: OpenClawConfig = {
       agents: {
