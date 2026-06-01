@@ -4,14 +4,18 @@ import type {
   StatefulBindingTargetDescriptor,
 } from "./binding-types.js";
 
+/** Readiness result returned before routing traffic into a stateful target. */
 export type StatefulBindingTargetReadyResult = { ok: true } | { ok: false; error: string };
+/** Session result returned after creating or confirming a routed stateful target session. */
 export type StatefulBindingTargetSessionResult =
   | { ok: true; sessionKey: string }
   | { ok: false; sessionKey: string; error: string };
+/** Reset result for drivers that can reset an existing stateful target in place. */
 export type StatefulBindingTargetResetResult =
   | { ok: true }
   | { ok: false; skipped?: boolean; error?: string };
 
+/** Driver contract for stateful binding targets such as ACP-backed sessions. */
 export type StatefulBindingTargetDriver = {
   id: string;
   ensureReady: (params: {
@@ -41,6 +45,7 @@ function listStatefulBindingTargetDrivers(): StatefulBindingTargetDriver[] {
   return [...registeredStatefulBindingTargetDrivers.values()];
 }
 
+/** Registers a stateful binding target driver if its id has not been registered yet. */
 export function registerStatefulBindingTargetDriver(driver: StatefulBindingTargetDriver): void {
   const id = driver.id.trim();
   if (!id) {
@@ -54,10 +59,12 @@ export function registerStatefulBindingTargetDriver(driver: StatefulBindingTarge
   registeredStatefulBindingTargetDrivers.set(id, normalized);
 }
 
+/** Unregisters a stateful binding target driver, mainly for tests and lifecycle cleanup. */
 export function unregisterStatefulBindingTargetDriver(id: string): void {
   registeredStatefulBindingTargetDrivers.delete(id.trim());
 }
 
+/** Looks up a registered stateful binding target driver by id. */
 export function getStatefulBindingTargetDriver(id: string): StatefulBindingTargetDriver | null {
   const normalizedId = id.trim();
   if (!normalizedId) {
@@ -66,6 +73,7 @@ export function getStatefulBindingTargetDriver(id: string): StatefulBindingTarge
   return registeredStatefulBindingTargetDrivers.get(normalizedId) ?? null;
 }
 
+/** Finds the driver and target descriptor that own a stateful target session key. */
 export function resolveStatefulBindingTargetBySessionKey(params: {
   cfg: OpenClawConfig;
   sessionKey: string;
