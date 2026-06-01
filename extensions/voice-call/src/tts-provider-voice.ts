@@ -27,5 +27,7 @@ export function resolvePreferredTtsVoice(config: { tts?: VoiceCallTtsConfig }): 
   if (!providerId) {
     return undefined;
   }
+  // Only inspect the active provider block. Other provider voice settings may
+  // be configured for fallback chains, but they should not bias call metadata.
   return resolveProviderVoiceSetting(config.tts?.providers?.[providerId]);
 }
