@@ -14,12 +14,12 @@ import { resolveSessionFilePath, resolveStorePath } from "../../config/sessions/
 import {
   listSessionEntries as listAccessorSessionEntries,
   loadSessionEntry,
+  patchSessionEntry as patchAccessorSessionEntry,
   replaceSessionEntry,
   updateSessionEntry,
 } from "../../config/sessions/session-accessor.js";
 import {
   loadSessionStore,
-  patchSessionEntry,
   saveSessionStore,
   updateSessionStore,
 } from "../../config/sessions/store.js";
@@ -51,6 +51,16 @@ type RuntimeSessionStoreEntryUpdateParams = {
   ) => Promise<Partial<SessionEntry> | null> | Partial<SessionEntry> | null;
   skipMaintenance?: boolean;
   takeCacheOwnership?: boolean;
+};
+
+type RuntimeSessionStoreEntryPatchParams = RuntimeSessionStoreReadParams & {
+  fallbackEntry?: SessionEntry;
+  preserveActivity?: boolean;
+  replaceEntry?: boolean;
+  update: (
+    entry: SessionEntry,
+    context: { existingEntry?: SessionEntry },
+  ) => Promise<Partial<SessionEntry> | null> | Partial<SessionEntry> | null;
 };
 
 type RuntimeUpsertSessionEntryParams = RuntimeSessionStoreReadParams & {
@@ -90,6 +100,26 @@ function listSessionEntries(
     hydrateSkillPromptRefs: params.hydrateSkillPromptRefs,
     storePath: params.storePath,
   });
+}
+
+async function patchSessionEntry(
+  params: RuntimeSessionStoreEntryPatchParams,
+): Promise<SessionEntry | null> {
+  return await patchAccessorSessionEntry(
+    {
+      agentId: params.agentId,
+      env: params.env,
+      hydrateSkillPromptRefs: params.hydrateSkillPromptRefs,
+      sessionKey: params.sessionKey,
+      storePath: params.storePath,
+    },
+    params.update,
+    {
+      fallbackEntry: params.fallbackEntry,
+      preserveActivity: params.preserveActivity,
+      replaceEntry: params.replaceEntry,
+    },
+  );
 }
 
 async function updateSessionStoreEntry(

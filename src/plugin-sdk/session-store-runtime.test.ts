@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   getSessionEntry,
   listSessionEntries,
+  patchSessionEntry,
   updateSessionStoreEntry,
   upsertSessionEntry,
 } from "./session-store-runtime.js";
@@ -79,6 +80,19 @@ describe("session-store-runtime compatibility surface", () => {
         sessionId: "session-1",
         updatedAt: 10,
       },
+    });
+    const beforePatch = getSessionEntry({ sessionKey, storePath });
+    await expect(
+      patchSessionEntry({
+        sessionKey,
+        storePath,
+        preserveActivity: true,
+        update: () => ({ providerOverride: "openai", updatedAt: 20 }),
+      }),
+    ).resolves.toMatchObject({
+      providerOverride: "openai",
+      sessionId: "session-1",
+      updatedAt: beforePatch?.updatedAt,
     });
     await expect(
       updateSessionStoreEntry({

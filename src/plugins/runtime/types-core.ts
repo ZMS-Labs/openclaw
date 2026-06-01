@@ -223,7 +223,23 @@ export type PluginRuntimeCore = {
         sessionKey: string;
         entry: import("../../config/sessions/types.js").SessionEntry;
       }>;
-      patchSessionEntry: typeof import("../../config/sessions/store.js").patchSessionEntry;
+      patchSessionEntry: (params: {
+        agentId?: string;
+        env?: NodeJS.ProcessEnv;
+        fallbackEntry?: import("../../config/sessions/types.js").SessionEntry;
+        hydrateSkillPromptRefs?: boolean;
+        preserveActivity?: boolean;
+        replaceEntry?: boolean;
+        sessionKey: string;
+        storePath?: string;
+        update: (
+          entry: import("../../config/sessions/types.js").SessionEntry,
+          context: { existingEntry?: import("../../config/sessions/types.js").SessionEntry },
+        ) =>
+          | Promise<Partial<import("../../config/sessions/types.js").SessionEntry> | null>
+          | Partial<import("../../config/sessions/types.js").SessionEntry>
+          | null;
+      }) => Promise<import("../../config/sessions/types.js").SessionEntry | null>;
       upsertSessionEntry: (params: {
         agentId?: string;
         env?: NodeJS.ProcessEnv;

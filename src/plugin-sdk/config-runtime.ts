@@ -8,6 +8,7 @@ import { loadSessionStore as loadSessionStoreImpl } from "../config/sessions/sto
 export {
   getSessionEntry,
   listSessionEntries,
+  patchSessionEntry,
   updateSessionStoreEntry,
   upsertSessionEntry,
 } from "./session-store-runtime.js";
@@ -147,7 +148,6 @@ export type {
 } from "../config/types.js";
 export {
   clearSessionStoreCacheForTest,
-  patchSessionEntry,
   readSessionUpdatedAt,
   recordSessionMetaFromInbound,
   saveSessionStore,
