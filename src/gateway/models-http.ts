@@ -20,17 +20,26 @@ import {
 import { authorizeOperatorScopesForMethod } from "./method-scopes.js";
 
 type OpenAiModelsHttpOptions = {
+  /** Resolved Gateway auth policy for the models endpoint. */
   auth: ResolvedGatewayAuth;
+  /** Trusted proxy CIDRs/hosts used for forwarded-origin checks. */
   trustedProxies?: string[];
+  /** Whether direct remote addresses may be used when proxy headers are absent. */
   allowRealIpFallback?: boolean;
+  /** Optional auth failure budget shared with the Gateway HTTP layer. */
   rateLimiter?: AuthRateLimiter;
 };
 
 type OpenAiModelObject = {
+  /** OpenAI-compatible model id, mapped to a Gateway agent selector. */
   id: string;
+  /** OpenAI object discriminator. */
   object: "model";
+  /** Stable placeholder timestamp; Gateway agent selectors are not provider catalog entries. */
   created: number;
+  /** Owner namespace shown to OpenAI-compatible clients. */
   owned_by: string;
+  /** Legacy OpenAI field kept as an empty list for compatibility. */
   permission: [];
 };
 
@@ -76,6 +85,7 @@ function resolveRequestPath(req: IncomingMessage): string {
   return new URL(req.url ?? "/", "http://localhost").pathname;
 }
 
+/** Handles OpenAI-compatible `/v1/models` list and single-model lookup requests. */
 export async function handleOpenAiModelsHttpRequest(
   req: IncomingMessage,
   res: ServerResponse,
