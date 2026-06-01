@@ -5,11 +5,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { appendTranscriptEvent, upsertSessionEntry } from "../config/sessions/session-accessor.js";
 import { loadSessionStore } from "../config/sessions/store.js";
 import {
+  appendSessionTranscriptMessageByIdentity,
   formatSessionTranscriptMemoryHitKey,
   parseSessionTranscriptMemoryHitKey,
   readSessionTranscriptEvents,
   resolveSessionTranscriptIdentity,
+  resolveSessionTranscriptTarget,
   resolveSessionTranscriptMemoryHitKeyToSessionKeys,
+  withSessionTranscriptWriteLock,
 } from "./session-transcript-runtime.js";
 
 describe("session transcript runtime SDK", () => {
@@ -47,6 +50,96 @@ describe("session transcript runtime SDK", () => {
     });
     expect(identity).not.toHaveProperty("sessionFile");
     await expect(readSessionTranscriptEvents(scope)).resolves.toEqual([event]);
+  });
+
+  it("binds scoped reads to an explicit active transcript file without exposing it", async () => {
+    const scope = {
+      agentId: "main",
+      sessionFile: path.join(tempDir, "active-session.jsonl"),
+      sessionId: "active-session",
+      sessionKey: "agent:main:main",
+      storePath,
+    };
+    const event = { id: "event-active", type: "message" };
+
+    await upsertSessionEntry(scope, {
+      sessionFile: path.join(tempDir, "store-default.jsonl"),
+      sessionId: scope.sessionId,
+      updatedAt: 10,
+    });
+    await appendTranscriptEvent(scope, event);
+
+    const target = await resolveSessionTranscriptTarget(scope);
+
+    expect(target).toEqual({
+      agentId: "main",
+      memoryKey: "transcript:main:active-session",
+      sessionId: "active-session",
+      sessionKey: "agent:main:main",
+      targetKind: "active-session-file",
+    });
+    expect(target).not.toHaveProperty("sessionFile");
+    await expect(readSessionTranscriptEvents(scope)).resolves.toEqual([event]);
+    expect(fs.readFileSync(scope.sessionFile, "utf8")).toContain("event-active");
+  });
+
+  it("appends messages by the same explicit scoped transcript target", async () => {
+    const scope = {
+      agentId: "main",
+      sessionFile: path.join(tempDir, "mirror-target.jsonl"),
+      sessionId: "mirror-session",
+      sessionKey: "agent:main:main",
+      storePath,
+    };
+    const message = {
+      role: "assistant",
+      content: [{ type: "text", text: "hello" }],
+      timestamp: 1,
+    };
+
+    const appended = await appendSessionTranscriptMessageByIdentity({
+      ...scope,
+      message,
+    });
+
+    expect(appended).toBeDefined();
+    expect(appended?.message).toMatchObject(message);
+    await expect(readSessionTranscriptEvents(scope)).resolves.toEqual([
+      expect.objectContaining({ type: "session" }),
+      expect.objectContaining({ message: expect.objectContaining({ role: "assistant" }) }),
+    ]);
+  });
+
+  it("locks read and append helpers to one scoped transcript target", async () => {
+    const scope = {
+      agentId: "main",
+      sessionFile: path.join(tempDir, "locked-target.jsonl"),
+      sessionId: "locked-session",
+      sessionKey: "agent:main:main",
+      storePath,
+    };
+
+    const target = await withSessionTranscriptWriteLock(scope, async (locked) => {
+      expect(await locked.readEvents()).toEqual([]);
+      await locked.appendMessage({
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "locked" }],
+          timestamp: 1,
+        },
+      });
+      return locked.target;
+    });
+
+    expect(target).toMatchObject({
+      sessionId: "locked-session",
+      targetKind: "active-session-file",
+    });
+    expect(target).not.toHaveProperty("sessionFile");
+    await expect(readSessionTranscriptEvents(scope)).resolves.toEqual([
+      expect.objectContaining({ type: "session" }),
+      expect.objectContaining({ message: expect.objectContaining({ role: "assistant" }) }),
+    ]);
   });
 
   it("round-trips encoded memory hit keys with opaque session ids", () => {
