@@ -391,6 +391,8 @@ export class TwilioProvider implements VoiceCallProvider {
 
     const endReason = mapProviderStatusToEndReason(callStatus);
     if (endReason) {
+      // Terminal status callbacks are the last provider-owned cleanup point for
+      // stream credentials when local hangup did not initiate the call ending.
       this.streamAuthTokens.delete(callSid);
       this.activeStreamCalls.delete(callSid);
       if (callIdOverride) {
@@ -524,6 +526,8 @@ export class TwilioProvider implements VoiceCallProvider {
     }
     const token = this.getStreamAuthToken(callSid);
     const url = new URL(baseUrl);
+    // Keep the token in URL state until getStreamConnectXml moves it into a
+    // Twilio <Parameter>; Twilio drops WebSocket query strings on connect.
     url.searchParams.set("token", token);
     return url.toString();
   }
@@ -682,6 +686,8 @@ export class TwilioProvider implements VoiceCallProvider {
   <Redirect method="POST">${escapeXml(webhookUrl)}</Redirect>
 </Response>`;
 
+    // Redirect back to the stored webhook URL so the call returns to normal
+    // dynamic TwiML after Twilio finishes playing the DTMF sequence.
     await this.updateLiveCallTwiml(input.providerCallId, twiml, "sendDtmf");
   }
 
