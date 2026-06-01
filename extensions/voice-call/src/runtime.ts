@@ -141,6 +141,8 @@ function mapVoiceCallConsultTranscript(
   );
   const partial = context?.partialUserTranscript?.trim();
   if (partial && transcript.at(-1)?.text !== partial) {
+    // Tool calls can arrive before the final STT commit; include the latest
+    // partial once without duplicating already-committed transcript text.
     transcript.push({ role: "user", text: partial });
   }
   return transcript;
@@ -261,6 +263,7 @@ async function resolveRealtimeProvider(params: {
   });
 }
 
+/** Starts the provider, webhook server, optional realtime bridge, and cleanup lifecycle. */
 export async function createVoiceCallRuntime(params: {
   config: VoiceCallConfig;
   coreConfig: CoreConfig;
@@ -440,7 +443,6 @@ export async function createVoiceCallRuntime(params: {
   // keeps the port bound while the runtime promise rejects, causing
   // EADDRINUSE on the next attempt.  See: #32387
   try {
-    // Determine public URL - priority: config.publicUrl > tunnel > legacy tailscale
     let publicUrl: string | null = config.publicUrl ?? null;
 
     if (!publicUrl && config.tunnel?.provider && config.tunnel.provider !== "none") {
