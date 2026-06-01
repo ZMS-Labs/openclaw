@@ -29,6 +29,8 @@ function readNullableNumber(
   record: Record<string, unknown>,
   key: string,
 ): number | null | undefined {
+  // Preserve explicit null timestamps; status callers use null to distinguish
+  // "known empty" from an omitted/unsupported field.
   if (record[key] === null) {
     return null;
   }
@@ -67,6 +69,8 @@ export function resolveConfiguredFromCredentialStatuses(account: unknown): boole
     }
     sawCredentialStatus = true;
     if (status !== "missing") {
+      // Any configured credential is enough for coarse account presence; callers
+      // that require every credential use resolveConfiguredFromRequiredCredentialStatuses.
       return true;
     }
   }
@@ -89,6 +93,8 @@ export function resolveConfiguredFromRequiredCredentialStatuses(
     }
     sawCredentialStatus = true;
     if (status === "missing") {
+      // Required-credential checks are all-or-nothing so multi-token accounts
+      // do not appear configured when one mandatory credential is absent.
       return false;
     }
   }
@@ -143,6 +149,8 @@ export function projectCredentialSnapshotFields(
   const appTokenSource = normalizeOptionalString(record.appTokenSource);
   const signingSecretSource = normalizeOptionalString(record.signingSecretSource);
 
+  // Only expose source/status metadata. Raw credential fields are intentionally
+  // omitted here because channel snapshots are safe to display in status output.
   return {
     ...(tokenSource ? { tokenSource } : {}),
     ...(botTokenSource ? { botTokenSource } : {}),
