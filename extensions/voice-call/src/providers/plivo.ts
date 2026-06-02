@@ -26,13 +26,13 @@ import type { VoiceCallProvider } from "./base.js";
 import { guardedJsonApiRequest } from "./shared/guarded-json-api.js";
 
 export interface PlivoProviderOptions {
-  /** Override public URL origin for signature verification */
+  /** Canonical external origin used when Plivo signs or re-fetches callback URLs. */
   publicUrl?: string;
-  /** Skip webhook signature verification (development only) */
+  /** Development-only escape hatch; production should verify every Plivo callback. */
   skipVerification?: boolean;
-  /** Outbound ring timeout in seconds */
+  /** Outbound ring timeout passed to Plivo's `hangup_on_ring` field. */
   ringTimeoutSec?: number;
-  /** Webhook security options (forwarded headers/allowlist) */
+  /** Forwarded-header trust and host allowlist controls for callback URL reconstruction. */
   webhookSecurity?: WebhookSecurityConfig;
 }
 
@@ -52,7 +52,7 @@ function createPlivoRequestDedupeKey(ctx: WebhookContext): string {
   return `plivo:fallback:${crypto.createHash("sha256").update(ctx.rawBody).digest("hex")}`;
 }
 
-/** Plivo Call API provider with XML transfer flows for speak/listen call control. */
+/** Plivo Call API provider that drives speak/listen by transferring the A-leg to XML callbacks. */
 export class PlivoProvider implements VoiceCallProvider {
   readonly name = "plivo" as const;
 
@@ -87,6 +87,7 @@ export class PlivoProvider implements VoiceCallProvider {
     this.options = options;
   }
 
+  /** Sends an authenticated Plivo API request through the SSRF guard. */
   private async apiRequest<T = unknown>(params: {
     method: "GET" | "POST" | "DELETE";
     endpoint: string;
@@ -109,6 +110,7 @@ export class PlivoProvider implements VoiceCallProvider {
     });
   }
 
+  /** Verifies Plivo signatures and returns replay keys for manager-level webhook dedupe. */
   verifyWebhook(ctx: WebhookContext): WebhookVerificationResult {
     const result = verifyPlivoWebhook(ctx, this.authToken, {
       publicUrl: this.options.publicUrl,
@@ -131,6 +133,7 @@ export class PlivoProvider implements VoiceCallProvider {
     };
   }
 
+  /** Parses Plivo form callbacks into normalized events or one-shot XML responses. */
   parseWebhookEvent(
     ctx: WebhookContext,
     options?: WebhookParseOptions,
@@ -367,6 +370,7 @@ export class PlivoProvider implements VoiceCallProvider {
     });
   }
 
+  /** Resolves Plivo's create-time request UUID to the callback-time CallUUID when available. */
   private resolveCallContext(params: {
     providerCallId: string;
     callId: string;
@@ -389,6 +393,7 @@ export class PlivoProvider implements VoiceCallProvider {
     return { callUuid, webhookBase };
   }
 
+  /** Transfers the live call leg to a short-lived XML flow for pending speak/listen payloads. */
   private async transferCallLeg(params: {
     callUuid: string;
     webhookBase: string;
@@ -458,6 +463,7 @@ export class PlivoProvider implements VoiceCallProvider {
     // GetInput ends automatically when speech ends.
   }
 
+  /** Reads Plivo call status during restore; API errors stay unknown so timers can decide later. */
   async getCallStatus(input: GetCallStatusInput): Promise<GetCallStatusResult> {
     const terminalStatuses = new Set([
       "completed",
