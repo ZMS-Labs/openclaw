@@ -1313,7 +1313,7 @@ function normalizeMetadata(
         : undefined
       : fallback.stale,
     lifecycleStatusSourceUpdatedAt: hasLifecycleStatusSourceUpdatedAt
-      ? normalizeTimestamp(record.lifecycleStatusSourceUpdatedAt, 0) || undefined
+      ? normalizeTimestamp(record.lifecycleStatusSourceUpdatedAt, 0)
       : fallback.lifecycleStatusSourceUpdatedAt,
     failureCount:
       typeof record.failureCount === "number" && Number.isFinite(record.failureCount)
@@ -1655,7 +1655,7 @@ function lifecycleStatusSourceUpdatedAtFromPatch(metadata: unknown): number | un
     (metadata as Record<string, unknown>).lifecycleStatusSourceUpdatedAt,
     0,
   );
-  return sourceUpdatedAt || undefined;
+  return sourceUpdatedAt;
 }
 
 function latestStatusTransitionAt(card: WorkboardCard): number | undefined {

@@ -342,6 +342,12 @@ describe("WorkboardStore", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({ title: "Sync status provenance" });
 
+    const zeroSourceLifecycle = await store.update(card.id, {
+      status: "running",
+      metadata: { lifecycleStatusSourceUpdatedAt: 0 },
+    });
+    expect(zeroSourceLifecycle.metadata?.lifecycleStatusSourceUpdatedAt).toBe(0);
+
     const lifecycleMoved = await store.update(card.id, {
       status: "running",
       metadata: { lifecycleStatusSourceUpdatedAt: 1000 },
@@ -356,6 +362,13 @@ describe("WorkboardStore", () => {
 
     const manual = await store.move(card.id, "running", 2000);
     expect(manual.metadata?.lifecycleStatusSourceUpdatedAt).toBeUndefined();
+
+    const staleZeroLifecycle = await store.update(card.id, {
+      status: "review",
+      metadata: { lifecycleStatusSourceUpdatedAt: 0 },
+    });
+    expect(staleZeroLifecycle.status).toBe("running");
+    expect(staleZeroLifecycle.metadata?.lifecycleStatusSourceUpdatedAt).toBeUndefined();
 
     const staleLifecycle = await store.update(card.id, {
       status: "review",

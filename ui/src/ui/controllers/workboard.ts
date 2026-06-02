@@ -1425,14 +1425,10 @@ function hasPendingStatusTransition(host: WorkboardHost, cardId: string): boolea
   return pendingStatusTransitions.get(host)?.has(cardId) ?? false;
 }
 
-function shouldSkipLifecycleWrite(
-  host: WorkboardHost,
+function shouldSkipStaleLifecycleStatus(
   card: WorkboardCard,
   lifecycle: WorkboardLifecycle,
 ): boolean {
-  if (hasPendingStatusTransition(host, card.id)) {
-    return true;
-  }
   if (lifecycle.sourceUpdatedAt === undefined) {
     return false;
   }
@@ -1442,6 +1438,16 @@ function shouldSkipLifecycleWrite(
   }
   const statusTransitionAt = latestStatusTransitionAt(card);
   return statusTransitionAt !== undefined && lifecycle.sourceUpdatedAt < statusTransitionAt;
+}
+
+function shouldSkipLifecycleStatusWrite(
+  host: WorkboardHost,
+  card: WorkboardCard,
+  lifecycle: WorkboardLifecycle,
+): boolean {
+  return (
+    hasPendingStatusTransition(host, card.id) || shouldSkipStaleLifecycleStatus(card, lifecycle)
+  );
 }
 
 function latestStatusTransitionAt(card: WorkboardCard): number | undefined {
@@ -1739,14 +1745,12 @@ export async function syncWorkboardLifecycle(params: {
       params.sessions,
       state.tasksByCardId.get(card.id),
     );
-    if (shouldSkipLifecycleWrite(params.host, card, lifecycle)) {
-      // Lifecycle writes return whole cards; stale metadata-only sync can replace
-      // the user's explicit status choice with an older lifecycle response.
-      continue;
-    }
     const executionStatus = executionStatusForLifecycle(lifecycle);
     const patch: Record<string, unknown> = {};
-    if (shouldSyncCardStatus(card, lifecycle.targetStatus)) {
+    if (
+      !shouldSkipLifecycleStatusWrite(params.host, card, lifecycle) &&
+      shouldSyncCardStatus(card, lifecycle.targetStatus)
+    ) {
       patch.status = lifecycle.targetStatus;
       if (lifecycle.sourceUpdatedAt !== undefined) {
         mergePatchMetadata(patch, {
@@ -1796,12 +1800,18 @@ export async function syncWorkboardLifecycle(params: {
         patch,
       });
       const currentCard = state.cards.find((candidate) => candidate.id === card.id);
+      const responseCard = normalizeCardPayload(payload);
       // The user can change status after this request was sent; lifecycle responses
       // are full-card replacements, so stale responses need the same guard again.
-      if (!currentCard || shouldSkipLifecycleWrite(params.host, currentCard, lifecycle)) {
+      if (
+        !currentCard ||
+        hasPendingStatusTransition(params.host, currentCard.id) ||
+        (shouldSkipStaleLifecycleStatus(currentCard, lifecycle) &&
+          responseCard.status !== currentCard.status)
+      ) {
         continue;
       }
-      replaceCard(state, normalizeCardPayload(payload));
+      replaceCard(state, responseCard);
       syncKeys.set(card.id, key);
     } catch (error) {
       state.error = formatError(error);

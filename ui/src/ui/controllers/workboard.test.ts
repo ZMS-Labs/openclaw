@@ -422,11 +422,16 @@ describe("workboard controller", () => {
       sessions: [{ ...sampleSession, hasActiveRun: false, status: "done", updatedAt: 1 }],
     });
 
-    expect(client.request).toHaveBeenCalledTimes(1);
+    expect(client.request).toHaveBeenCalledTimes(2);
     expect(client.request).toHaveBeenCalledWith("workboard.cards.update", {
       id: "card-1",
       patch: expect.objectContaining({ status: "running" }),
     });
+    expect(client.request.mock.calls[1]?.[1]).toMatchObject({
+      id: "card-1",
+      patch: { execution: expect.objectContaining({ status: "review" }) },
+    });
+    expect(client.request.mock.calls[1]?.[1]?.patch).not.toHaveProperty("status");
     expect(state.cards[0]).toMatchObject({ status: "running" });
   });
 
@@ -500,7 +505,12 @@ describe("workboard controller", () => {
       sessions: [{ ...sampleSession, hasActiveRun: false, status: "done", updatedAt: 1 }],
     });
 
-    expect(client.request).toHaveBeenCalledTimes(1);
+    expect(client.request).toHaveBeenCalledTimes(2);
+    expect(client.request.mock.calls[1]?.[1]).toMatchObject({
+      id: "card-1",
+      patch: { execution: expect.objectContaining({ status: "review" }) },
+    });
+    expect(client.request.mock.calls[1]?.[1]?.patch).not.toHaveProperty("status");
     saveResponse.resolve({ card: saved });
     await saving;
     expect(state.cards[0]).toMatchObject({ status: "running" });
@@ -1591,12 +1601,17 @@ describe("workboard controller", () => {
       sessions: [{ ...sampleSession, hasActiveRun: false, status: "done", updatedAt: 1 }],
     });
 
-    expect(client.request).toHaveBeenCalledTimes(1);
+    expect(client.request).toHaveBeenCalledTimes(2);
     expect(client.request).toHaveBeenCalledWith("workboard.cards.move", {
       id: "card-1",
       status: "running",
       position: 2000,
     });
+    expect(client.request.mock.calls[1]?.[1]).toMatchObject({
+      id: "card-1",
+      patch: { execution: expect.objectContaining({ status: "review" }) },
+    });
+    expect(client.request.mock.calls[1]?.[1]?.patch).not.toHaveProperty("status");
     expect(state.cards[0]).toMatchObject({ status: "running", position: 2000 });
   });
 
@@ -1665,7 +1680,12 @@ describe("workboard controller", () => {
       sessions: [{ ...sampleSession, hasActiveRun: false, status: "done", updatedAt: 1 }],
     });
 
-    expect(client.request).toHaveBeenCalledTimes(1);
+    expect(client.request).toHaveBeenCalledTimes(2);
+    expect(client.request.mock.calls[1]?.[1]).toMatchObject({
+      id: "card-1",
+      patch: { execution: expect.objectContaining({ status: "review" }) },
+    });
+    expect(client.request.mock.calls[1]?.[1]?.patch).not.toHaveProperty("status");
     moveResponse.resolve({ card: moved });
     await moving;
     expect(state.cards[0]).toMatchObject({ status: "running", position: 2000 });
@@ -2163,6 +2183,58 @@ describe("workboard controller", () => {
         },
       },
     });
+  });
+
+  it("clears stale metadata after a newer manual status move", async () => {
+    const host = {};
+    const state = getWorkboardState(host);
+    const linked = {
+      ...sampleCard,
+      status: "running",
+      sessionKey: sampleSession.key,
+      metadata: {
+        stale: {
+          detectedAt: 1,
+          lastSessionUpdatedAt: 1,
+          reason: "Linked session has not reported recent activity.",
+        },
+      },
+      events: [
+        {
+          id: "move-1",
+          kind: "moved",
+          at: 5,
+          fromStatus: "todo",
+          toStatus: "running",
+        },
+      ],
+    } satisfies WorkboardCard;
+    state.loaded = true;
+    state.cards = [linked];
+    const client = createClient({
+      "workboard.cards.update": {
+        card: { ...linked, metadata: undefined, updatedAt: 6 },
+      },
+    });
+
+    await syncWorkboardLifecycle({
+      host,
+      client: client as never,
+      sessions: [
+        {
+          ...sampleSession,
+          status: "running",
+          updatedAt: 3,
+          hasActiveRun: true,
+        },
+      ],
+    });
+
+    expect(client.request).toHaveBeenCalledWith("workboard.cards.update", {
+      id: "card-1",
+      patch: { metadata: { stale: null } },
+    });
+    expect(state.cards[0]?.metadata?.stale).toBeUndefined();
   });
 
   it("does not rewrite unchanged stale session metadata", async () => {
