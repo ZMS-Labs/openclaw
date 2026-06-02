@@ -292,7 +292,7 @@ describeControlUiE2e("Control UI Workboard status persistence E2E", () => {
       await page.getByRole("button", { name: "Save" }).click();
 
       const updateRequests = await waitForRequestCount(gateway, "workboard.cards.update", 1);
-      expect(requestParams(updateRequests[0]!)).toMatchObject({
+      expect(requestParams(updateRequests[0])).toMatchObject({
         id: "card-1",
         patch: {
           notes: "Edited notes survive reopening.",
