@@ -61,6 +61,14 @@ function copyRuntimeToolMetadata(source: AgentTool, target: AgentTool): void {
   copyChannelAgentToolMeta(source as never, target as never);
 }
 
+function readRuntimeToolNameForMetadata(tool: AgentTool): string | undefined {
+  try {
+    return tool.name;
+  } catch {
+    return undefined;
+  }
+}
+
 // Duplicate names cannot be matched by map lookup alone, so same-index matches
 // take precedence and unique-name fallback covers cloned arrays.
 function preserveRuntimeToolMetadata<TSchemaType extends TSchema = TSchema, TResult = unknown>(
@@ -70,7 +78,10 @@ function preserveRuntimeToolMetadata<TSchemaType extends TSchema = TSchema, TRes
   const sourcesByUniqueName = new Map<string, AgentTool<TSchemaType, TResult>>();
   const duplicateNames = new Set<string>();
   for (const source of sourceTools) {
-    const name = source.name;
+    const name = readRuntimeToolNameForMetadata(source);
+    if (!name) {
+      continue;
+    }
     if (sourcesByUniqueName.has(name)) {
       duplicateNames.add(name);
       sourcesByUniqueName.delete(name);
@@ -82,8 +93,16 @@ function preserveRuntimeToolMetadata<TSchemaType extends TSchema = TSchema, TRes
   }
   for (const [index, target] of normalizedTools.entries()) {
     const indexedSource = sourceTools[index];
+    const targetName = readRuntimeToolNameForMetadata(target);
+    const indexedSourceName = indexedSource
+      ? readRuntimeToolNameForMetadata(indexedSource)
+      : undefined;
     const source =
-      indexedSource?.name === target.name ? indexedSource : sourcesByUniqueName.get(target.name);
+      indexedSource && indexedSourceName && (!targetName || indexedSourceName === targetName)
+        ? indexedSource
+        : targetName
+          ? sourcesByUniqueName.get(targetName)
+          : undefined;
     if (source) {
       copyRuntimeToolMetadata(source, target);
     }

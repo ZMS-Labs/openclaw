@@ -281,6 +281,45 @@ describe("AgentRuntimePlan tool policy helpers", () => {
     ]);
   });
 
+  it("does not crash when provider normalization returns an unreadable tool name", () => {
+    const source = createParameterFreeTool("fixture__lookup_note") as AgentTool;
+    setPluginToolMeta(source, {
+      pluginId: "bundle-mcp",
+      optional: false,
+      mcp: {
+        serverName: "fixture",
+        safeServerName: "fixture",
+        toolName: "lookup_note",
+        operation: "tool",
+      },
+    });
+    const normalized = {
+      ...source,
+      parameters: normalizedParameterFreeSchema(),
+    };
+    Object.defineProperty(normalized, "name", {
+      enumerable: true,
+      get() {
+        throw new Error("provider returned revoked name");
+      },
+    });
+    mocks.normalizeProviderToolSchemas.mockReturnValueOnce([normalized]);
+
+    expect(
+      normalizeAgentRuntimeTools({
+        tools: [source],
+        provider: "openai",
+      }),
+    ).toEqual([normalized]);
+    expect(getPluginToolMeta(normalized)).toMatchObject({
+      pluginId: "bundle-mcp",
+      mcp: {
+        serverName: "fixture",
+        toolName: "lookup_note",
+      },
+    });
+  });
+
   it("quarantines unreadable tools before provider schema normalization", () => {
     const healthy = { ...createParameterFreeTool(), name: "healthy" } as AgentTool;
     const unreadable = { ...createParameterFreeTool(), name: "fuzzplugin_unreadable" } as AgentTool;
