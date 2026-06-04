@@ -115,4 +115,85 @@ describe("realtime voice agent consult tool", () => {
     ).toStrictEqual([REALTIME_VOICE_AGENT_CONSULT_TOOL, customTool]);
     expect(resolveRealtimeVoiceAgentConsultTools("none", [customTool])).toEqual([customTool]);
   });
+
+  it("skips unreadable custom realtime tools without dropping healthy tools", () => {
+    const badTool = {
+      type: "function" as const,
+      get name(): string {
+        throw new Error("tool revoked");
+      },
+      description: "Broken tool",
+      parameters: { type: "object" as const, properties: {} },
+    };
+    const badSchemaTool = {
+      type: "function" as const,
+      name: "bad_schema",
+      description: "Broken schema",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          query: {
+            get type(): string {
+              throw new Error("schema revoked");
+            },
+          },
+        },
+      },
+    };
+    const customTool = {
+      type: "function" as const,
+      name: "custom_lookup",
+      description: "Custom lookup",
+      parameters: { type: "object" as const, properties: {} },
+    };
+
+    expect(
+      resolveRealtimeVoiceAgentConsultTools("safe-read-only", [badTool, badSchemaTool, customTool]),
+    ).toStrictEqual([REALTIME_VOICE_AGENT_CONSULT_TOOL, customTool]);
+  });
+
+  it("copies custom realtime tool schemas before exposing them to providers", () => {
+    const querySchema = {
+      type: "string",
+      enum: ["alpha"],
+    };
+    Object.defineProperty(querySchema, "privateNote", {
+      enumerable: false,
+      value: "do not send",
+    });
+    const customTool = {
+      type: "function" as const,
+      name: "custom_lookup",
+      description: "Custom lookup",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          query: querySchema,
+        },
+        required: ["query"],
+      },
+    };
+
+    const resolved = resolveRealtimeVoiceAgentConsultTools("none", [customTool]);
+    customTool.parameters.properties.query = { type: "number", enum: ["beta"] };
+    customTool.parameters.required.push("later");
+
+    expect(resolved).toStrictEqual([
+      {
+        type: "function",
+        name: "custom_lookup",
+        description: "Custom lookup",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              enum: ["alpha"],
+            },
+          },
+          required: ["query"],
+        },
+      },
+    ]);
+  });
 });

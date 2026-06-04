@@ -80,6 +80,9 @@ const SAFE_READ_ONLY_TOOLS = [
   "memory_get",
 ] as const;
 
+const REALTIME_TOOL_SCHEMA_MAX_DEPTH = 24;
+const REALTIME_TOOL_SCHEMA_MAX_NODES = 1_000;
+
 /** Type guard for user/config supplied consult tool policies. */
 export function isRealtimeVoiceAgentConsultToolPolicy(
   value: unknown,
@@ -113,11 +116,121 @@ export function resolveRealtimeVoiceAgentConsultTools(
   // Keep the built-in consult tool first and prevent custom tools from
   // replacing its provider-facing contract by name.
   for (const tool of customTools) {
-    if (!tools.has(tool.name)) {
-      tools.set(tool.name, tool);
+    const snapshot = snapshotRealtimeVoiceTool(tool);
+    if (snapshot && !tools.has(snapshot.name)) {
+      tools.set(snapshot.name, snapshot);
     }
   }
   return [...tools.values()];
+}
+
+function snapshotRealtimeVoiceTool(tool: RealtimeVoiceTool): RealtimeVoiceTool | undefined {
+  try {
+    const type = tool.type;
+    const name = tool.name;
+    const description = tool.description;
+    const parameters = tool.parameters;
+    if (type !== "function" || !name || typeof description !== "string") {
+      return undefined;
+    }
+    const parameterSnapshot = snapshotRealtimeVoiceToolParameters(parameters);
+    if (!parameterSnapshot) {
+      return undefined;
+    }
+    return {
+      type: "function",
+      name,
+      description,
+      parameters: parameterSnapshot,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function snapshotRealtimeVoiceToolParameters(
+  parameters: RealtimeVoiceTool["parameters"],
+): RealtimeVoiceTool["parameters"] | undefined {
+  if (!parameters || typeof parameters !== "object" || parameters.type !== "object") {
+    return undefined;
+  }
+  const properties = snapshotRealtimeVoiceSchemaRecord(parameters.properties);
+  if (!properties) {
+    return undefined;
+  }
+  const required = parameters.required;
+  if (required !== undefined && !isStringArray(required)) {
+    return undefined;
+  }
+  return {
+    type: "object",
+    properties,
+    ...(required ? { required: [...required] } : {}),
+  };
+}
+
+function snapshotRealtimeVoiceSchemaRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const snapshot = cloneRealtimeVoiceSchemaValue(
+    value,
+    {
+      nodes: 0,
+      stack: new WeakSet<object>(),
+    },
+    0,
+  );
+  return snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
+    ? (snapshot as Record<string, unknown>)
+    : undefined;
+}
+
+function cloneRealtimeVoiceSchemaValue(
+  value: unknown,
+  state: { nodes: number; stack: WeakSet<object> },
+  depth: number,
+): unknown {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (!value || typeof value !== "object") {
+    throw new Error("unsupported realtime voice schema value");
+  }
+  if (depth > REALTIME_TOOL_SCHEMA_MAX_DEPTH || state.nodes > REALTIME_TOOL_SCHEMA_MAX_NODES) {
+    throw new Error("realtime voice schema is too large");
+  }
+  if (state.stack.has(value)) {
+    throw new Error("realtime voice schema cycle");
+  }
+  state.stack.add(value);
+  state.nodes += 1;
+  try {
+    if (Array.isArray(value)) {
+      return value.map((entry) => cloneRealtimeVoiceSchemaValue(entry, state, depth + 1));
+    }
+    const result: Record<string, unknown> = {};
+    for (const key of Object.keys(value)) {
+      Object.defineProperty(result, key, {
+        configurable: true,
+        enumerable: true,
+        value: cloneRealtimeVoiceSchemaValue(Reflect.get(value, key), state, depth + 1),
+        writable: true,
+      });
+    }
+    return result;
+  } finally {
+    state.stack.delete(value);
+  }
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
 
 /** Resolve the OpenClaw tool allowlist paired with the consult exposure policy. */
