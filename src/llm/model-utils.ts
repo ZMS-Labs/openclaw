@@ -22,16 +22,44 @@ const EXTENDED_THINKING_LEVELS: ModelThinkingLevel[] = [
   "max",
 ];
 
+function readObjectField(value: unknown, key: string): unknown {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  let descriptor: PropertyDescriptor | undefined;
+  try {
+    descriptor = Object.getOwnPropertyDescriptor(value, key);
+  } catch {
+    return undefined;
+  }
+  try {
+    return descriptor && "value" in descriptor ? descriptor.value : descriptor?.get?.call(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function readModelField<TApi extends Api>(model: Model<TApi>, key: string): unknown {
+  return readObjectField(model, key);
+}
+
+function readThinkingLevelMapValue<TApi extends Api>(
+  model: Model<TApi>,
+  level: ModelThinkingLevel,
+): unknown {
+  return readObjectField(readModelField(model, "thinkingLevelMap"), level);
+}
+
 /** Returns thinking levels exposed by a reasoning-capable model. */
 export function getSupportedThinkingLevels<TApi extends Api>(
   model: Model<TApi>,
 ): ModelThinkingLevel[] {
-  if (!model.reasoning) {
+  if (readModelField(model, "reasoning") !== true) {
     return ["off"];
   }
 
   return EXTENDED_THINKING_LEVELS.filter((level) => {
-    const mapped = model.thinkingLevelMap?.[level];
+    const mapped = readThinkingLevelMapValue(model, level);
     if (mapped === null) {
       return false;
     }

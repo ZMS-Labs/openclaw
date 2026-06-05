@@ -190,6 +190,27 @@ function readModelBooleanField<TApi extends Api>(model: Model<TApi>, key: string
   return readModelField(model, key) === true;
 }
 
+function readModelThinkingLevelMapValue<TApi extends Api>(
+  model: Model<TApi>,
+  key: string,
+): unknown {
+  const map = readModelField(model, "thinkingLevelMap");
+  if (!map || typeof map !== "object") {
+    return undefined;
+  }
+  let descriptor: PropertyDescriptor | undefined;
+  try {
+    descriptor = Object.getOwnPropertyDescriptor(map, key);
+  } catch {
+    return undefined;
+  }
+  try {
+    return descriptor && "value" in descriptor ? descriptor.value : descriptor?.get?.call(map);
+  } catch {
+    return undefined;
+  }
+}
+
 // =============================================================================
 // Message conversion
 // =============================================================================
@@ -464,25 +485,27 @@ export function applyCommonResponsesParams<TApi extends Api>(
     params.tools = convertResponsesTools(context.tools, { model });
   }
 
-  if (!model.reasoning) {
+  if (!readModelBooleanField(model, "reasoning")) {
     return;
   }
 
   if (options?.reasoningEffort || options?.reasoningSummary) {
-    const effort = options?.reasoningEffort
-      ? (model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort)
-      : "medium";
+    const mappedEffort = options?.reasoningEffort
+      ? readModelThinkingLevelMapValue(model, options.reasoningEffort)
+      : undefined;
+    const effort = options?.reasoningEffort ? (mappedEffort ?? options.reasoningEffort) : "medium";
     params.reasoning = {
       effort: effort as NonNullable<typeof params.reasoning>["effort"],
       summary: options?.reasoningSummary || "auto",
     };
     params.include = ["reasoning.encrypted_content"];
-  } else if ((config?.setDefaultReasoningOff ?? true) && model.thinkingLevelMap?.off !== null) {
-    params.reasoning = {
-      effort: (model.thinkingLevelMap?.off ?? "none") as NonNullable<
-        typeof params.reasoning
-      >["effort"],
-    };
+  } else {
+    const defaultOffEffort = readModelThinkingLevelMapValue(model, "off");
+    if ((config?.setDefaultReasoningOff ?? true) && defaultOffEffort !== null) {
+      params.reasoning = {
+        effort: (defaultOffEffort ?? "none") as NonNullable<typeof params.reasoning>["effort"],
+      };
+    }
   }
 }
 

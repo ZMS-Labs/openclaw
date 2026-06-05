@@ -3,8 +3,10 @@ import type { Tool as OpenAIResponsesTool } from "openai/resources/responses/res
 import { describe, expect, it } from "vitest";
 import type { Context, Model, Tool } from "../types.js";
 import {
+  applyCommonResponsesParams,
   convertResponsesMessages,
   createResponsesAssistantOutput,
+  resolveResponsesReasoningEffort,
 } from "./openai-responses-shared.js";
 import { convertResponsesTools } from "./openai-responses-tools.js";
 
@@ -533,5 +535,83 @@ describe("createResponsesAssistantOutput", () => {
       provider: "openai",
       model: "gpt-5.5",
     });
+  });
+});
+
+describe("Responses reasoning params", () => {
+  it("ignores unreadable thinking metadata when applying common params", () => {
+    const model = Object.defineProperties(
+      { ...nativeOpenAIModel },
+      {
+        reasoning: {
+          get() {
+            throw new Error("reasoning getter should be caught");
+          },
+        },
+        thinkingLevelMap: {
+          get() {
+            throw new Error("thinkingLevelMap getter should be caught");
+          },
+        },
+      },
+    ) as Model<"openai-responses">;
+    const params = {} as Parameters<typeof applyCommonResponsesParams>[0];
+
+    applyCommonResponsesParams(
+      params,
+      model,
+      { messages: [], tools: [{ name: "lookup", description: "Lookup", parameters: {} }] },
+      { reasoningEffort: "high", reasoningSummary: "auto" },
+    );
+
+    expect(params.reasoning).toBeUndefined();
+    expect(params.tools).toHaveLength(1);
+    expect(resolveResponsesReasoningEffort(model, "high")).toBeUndefined();
+  });
+
+  it("preserves readable accessor-backed thinking maps when applying common params", () => {
+    const model = Object.defineProperties(
+      { ...nativeOpenAIModel },
+      {
+        reasoning: {
+          get() {
+            return true;
+          },
+        },
+        thinkingLevelMap: {
+          get() {
+            return { high: "medium", off: "low", xhigh: "xhigh" };
+          },
+        },
+      },
+    ) as Model<"openai-responses">;
+    const params = {} as Parameters<typeof applyCommonResponsesParams>[0];
+
+    applyCommonResponsesParams(params, model, { messages: [] }, { reasoningEffort: "high" });
+
+    expect(params.reasoning).toEqual({ effort: "medium", summary: "auto" });
+    expect(params.include).toEqual(["reasoning.encrypted_content"]);
+    expect(resolveResponsesReasoningEffort(model, "max")).toBe("xhigh");
+  });
+
+  it("uses default reasoning-off params when the off mapping is unreadable", () => {
+    const thinkingLevelMap = Object.defineProperties(
+      {},
+      {
+        off: {
+          get() {
+            throw new Error("off getter should be caught");
+          },
+        },
+      },
+    );
+    const model = Object.assign({}, nativeOpenAIModel, {
+      thinkingLevelMap,
+    }) as Model<"openai-responses">;
+    const params = {} as Parameters<typeof applyCommonResponsesParams>[0];
+
+    applyCommonResponsesParams(params, model, { messages: [] });
+
+    expect(params.reasoning).toEqual({ effort: "none" });
   });
 });
