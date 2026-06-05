@@ -188,6 +188,62 @@ function addMcpUtilityTool(params: {
   params.tools.push(agentTool);
 }
 
+function readCatalogToolField(tool: unknown, key: string): unknown {
+  try {
+    return (tool as Record<string, unknown>)[key];
+  } catch {
+    return undefined;
+  }
+}
+
+function readCatalogToolString(tool: unknown, key: string): string | undefined {
+  const value = readCatalogToolField(tool, key);
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function readCatalogToolInputSchema(tool: unknown): McpCatalogTool["inputSchema"] | undefined {
+  const value = readCatalogToolField(tool, "inputSchema");
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as McpCatalogTool["inputSchema"];
+}
+
+export function snapshotBundleMcpCatalogToolsForMaterialization(tools: readonly unknown[]): {
+  tools: McpCatalogTool[];
+  diagnostics: string[];
+} {
+  const snapshots: McpCatalogTool[] = [];
+  const diagnostics: string[] = [];
+  tools.forEach((tool, index) => {
+    const serverName = readCatalogToolString(tool, "serverName");
+    const safeServerName = readCatalogToolString(tool, "safeServerName");
+    const rawToolName = readCatalogToolString(tool, "toolName");
+    const toolName = rawToolName?.trim();
+    if (!serverName?.trim() || !safeServerName?.trim() || !toolName) {
+      diagnostics.push(`skipped malformed MCP catalog tool ${index}: missing readable identity`);
+      return;
+    }
+    const inputSchema = readCatalogToolInputSchema(tool);
+    if (!inputSchema) {
+      diagnostics.push(`skipped malformed MCP catalog tool ${index}: missing readable inputSchema`);
+      return;
+    }
+    snapshots.push({
+      serverName,
+      safeServerName,
+      toolName,
+      title: readCatalogToolString(tool, "title"),
+      description: readCatalogToolString(tool, "description"),
+      inputSchema,
+      fallbackDescription:
+        readCatalogToolString(tool, "fallbackDescription") ??
+        `Provided by bundle MCP server "${serverName}".`,
+    });
+  });
+  return { tools: snapshots, diagnostics };
+}
+
 /**
  * Projects an already-listed MCP catalog into agent tools. Without `createExecute`,
  * the projected tools are inventory-only and throw if execution is attempted.
@@ -203,7 +259,13 @@ export function buildBundleMcpToolsFromCatalog(params: {
 }): AnyAgentTool[] {
   const reservedNames = normalizeReservedToolNames(params.reservedToolNames);
   const tools: AnyAgentTool[] = [];
-  const sortedCatalogTools = [...params.catalog.tools].toSorted((a, b) => {
+  const catalogToolSnapshots = snapshotBundleMcpCatalogToolsForMaterialization(
+    params.catalog.tools,
+  );
+  for (const diagnostic of catalogToolSnapshots.diagnostics) {
+    logWarn(`bundle-mcp: ${diagnostic}`);
+  }
+  const sortedCatalogTools = catalogToolSnapshots.tools.toSorted((a, b) => {
     const serverOrder = a.safeServerName.localeCompare(b.safeServerName);
     if (serverOrder !== 0) {
       return serverOrder;
@@ -216,10 +278,7 @@ export function buildBundleMcpToolsFromCatalog(params: {
   });
 
   for (const tool of sortedCatalogTools) {
-    const originalName = tool.toolName.trim();
-    if (!originalName) {
-      continue;
-    }
+    const originalName = tool.toolName;
     const server = params.catalog.servers[tool.serverName];
     const executionMode: AnyAgentTool["executionMode"] =
       server?.supportsParallelToolCalls === true ? "parallel" : "sequential";

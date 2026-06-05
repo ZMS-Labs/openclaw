@@ -7,6 +7,7 @@ import {
   buildBundleMcpToolsFromCatalog,
   createBundleMcpToolRuntime,
   materializeBundleMcpToolsForRun,
+  snapshotBundleMcpCatalogToolsForMaterialization,
 } from "./agent-bundle-mcp-materialize.js";
 import type { McpCatalogTool } from "./agent-bundle-mcp-types.js";
 import type { McpToolCatalogDiagnostic } from "./agent-bundle-mcp-types.js";
@@ -84,6 +85,103 @@ function makeToolRuntime(
 }
 
 describe("createBundleMcpToolRuntime", () => {
+  it("skips malformed MCP catalog entries while preserving healthy tools", () => {
+    const healthySchema = { type: "object", properties: { query: { type: "string" } } };
+    const unreadableToolName = {
+      serverName: "bundleProbe",
+      safeServerName: "bundleProbe",
+      inputSchema: { type: "object" },
+      fallbackDescription: "bad",
+    };
+    Object.defineProperty(unreadableToolName, "toolName", {
+      get: () => {
+        throw new Error("boom");
+      },
+    });
+    const unreadableSchema = {
+      serverName: "bundleProbe",
+      safeServerName: "bundleProbe",
+      toolName: "bad_schema",
+      fallbackDescription: "bad",
+    };
+    Object.defineProperty(unreadableSchema, "inputSchema", {
+      get: () => {
+        throw new Error("boom");
+      },
+    });
+    const healthyTool = {
+      serverName: " bundleProbe ",
+      safeServerName: "bundleProbe",
+      toolName: " safe_lookup ",
+      get title() {
+        throw new Error("boom");
+      },
+      get description() {
+        throw new Error("boom");
+      },
+      inputSchema: healthySchema,
+      fallbackDescription: "Safe fallback",
+    };
+
+    const snapshot = snapshotBundleMcpCatalogToolsForMaterialization([
+      unreadableToolName,
+      { serverName: "bundleProbe", safeServerName: "bundleProbe", toolName: "   " },
+      { serverName: "bundleProbe", safeServerName: "bundleProbe", toolName: 42 },
+      unreadableSchema,
+      healthyTool,
+    ]);
+
+    expect(snapshot.diagnostics).toEqual([
+      "skipped malformed MCP catalog tool 0: missing readable identity",
+      "skipped malformed MCP catalog tool 1: missing readable identity",
+      "skipped malformed MCP catalog tool 2: missing readable identity",
+      "skipped malformed MCP catalog tool 3: missing readable inputSchema",
+    ]);
+    expect(snapshot.tools).toEqual([
+      {
+        serverName: " bundleProbe ",
+        safeServerName: "bundleProbe",
+        toolName: "safe_lookup",
+        title: undefined,
+        description: undefined,
+        inputSchema: healthySchema,
+        fallbackDescription: "Safe fallback",
+      },
+    ]);
+
+    let capturedExecuteTool: McpCatalogTool | undefined;
+    const tools = buildBundleMcpToolsFromCatalog({
+      catalog: {
+        version: 1,
+        generatedAt: 0,
+        servers: {
+          " bundleProbe ": {
+            serverName: " bundleProbe ",
+            launchSummary: "bundleProbe",
+            toolCount: 1,
+          },
+        },
+        tools: [
+          unreadableToolName,
+          { serverName: "bundleProbe", safeServerName: "bundleProbe", toolName: "   " },
+          { serverName: "bundleProbe", safeServerName: "bundleProbe", toolName: 42 },
+          unreadableSchema,
+          healthyTool,
+        ] as unknown as McpCatalogTool[],
+      },
+      createExecute: (tool) => {
+        capturedExecuteTool = tool;
+        return async () => ({ content: [], details: {} });
+      },
+    });
+
+    expect(tools.map((tool) => tool.name)).toEqual(["bundleProbe__safe_lookup"]);
+    expect(capturedExecuteTool?.serverName).toBe(" bundleProbe ");
+    expect(capturedExecuteTool?.safeServerName).toBe("bundleProbe");
+    expect(tools[0]?.description).toBe("Safe fallback");
+    expect(tools[0]?.parameters).toEqual(healthySchema);
+  });
+
   it("materializes bundle MCP tools and executes them", async () => {
     const runtime = await materializeBundleMcpToolsForRun({
       runtime: makeToolRuntime(),
