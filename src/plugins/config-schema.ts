@@ -55,20 +55,35 @@ function safeParseRuntimeSchema(schema: ZodTypeAny, value: unknown): SafeParseRe
   };
 }
 
-function normalizeJsonSchema(schema: unknown): unknown {
+function snapshotJsonSchema(schema: unknown, options?: { stripUiOnlyMetadata?: boolean }): unknown {
   if (Array.isArray(schema)) {
-    return schema.map((item) => normalizeJsonSchema(item));
+    const items: unknown[] = [];
+    for (const index of schema.keys()) {
+      try {
+        items.push(snapshotJsonSchema(schema[index], options));
+      } catch {
+        // Plugin-owned schemas are UI metadata; skip unreadable array entries
+        // so config/schema discovery cannot crash the gateway.
+      }
+    }
+    return items;
   }
   if (!schema || typeof schema !== "object") {
     return schema;
   }
-  const record = { ...(schema as Record<string, unknown>) };
-  delete record.$schema;
-
-  for (const [key, value] of Object.entries(record)) {
-    record[key] = normalizeJsonSchema(value);
+  const record: Record<string, unknown> = {};
+  for (const key of Object.keys(schema)) {
+    try {
+      record[key] = snapshotJsonSchema((schema as Record<string, unknown>)[key], options);
+    } catch {
+      // Skip hostile accessors while preserving the rest of the schema object.
+    }
+  }
+  if (!options?.stripUiOnlyMetadata) {
+    return record;
   }
 
+  delete record.$schema;
   const propertyNames = record.propertyNames;
   if (
     propertyNames &&
@@ -84,6 +99,10 @@ function normalizeJsonSchema(schema: unknown): unknown {
   }
 
   return record;
+}
+
+function normalizeJsonSchema(schema: unknown): unknown {
+  return snapshotJsonSchema(schema, { stripUiOnlyMetadata: true });
 }
 
 function toIssuePath(path: string): Array<string | number> {
@@ -125,14 +144,16 @@ export function buildJsonPluginConfigSchema(
   schema: JsonSchemaObject,
   options?: BuildJsonPluginConfigSchemaOptions,
 ): OpenClawPluginConfigSchema {
+  const runtimeSchema = snapshotJsonSchema(schema) as JsonSchemaObject;
+  const jsonSchema = normalizeJsonSchema(schema) as JsonSchemaObject;
   const safeParse =
     options?.safeParse ??
     ((value: unknown) =>
-      safeParseJsonSchema(schema, options?.cacheKey ?? "plugin-config-schema:json", value));
+      safeParseJsonSchema(runtimeSchema, options?.cacheKey ?? "plugin-config-schema:json", value));
   return {
     safeParse,
     ...(options?.uiHints ? { uiHints: options.uiHints } : {}),
-    jsonSchema: normalizeJsonSchema(schema) as JsonSchemaObject,
+    jsonSchema,
   };
 }
 
@@ -143,19 +164,30 @@ export function buildPluginConfigSchema(
 ): OpenClawPluginConfigSchema {
   const schemaWithJson = schema as ZodSchemaWithToJsonSchema;
   const safeParse = options?.safeParse ?? ((value) => safeParseRuntimeSchema(schema, value));
-  if (typeof schemaWithJson.toJSONSchema === "function") {
-    return {
-      safeParse,
-      ...(options?.uiHints ? { uiHints: options.uiHints } : {}),
-      // Normalize generated schema so plugin consumers see a stable draft-07-ish shape.
-      jsonSchema: normalizeJsonSchema(
-        schemaWithJson.toJSONSchema({
-          target: "draft-07",
-          io: "input",
-          unrepresentable: "any",
-        }),
-      ) as JsonSchemaObject,
-    };
+  let toJSONSchema: ZodSchemaWithToJsonSchema["toJSONSchema"];
+  try {
+    toJSONSchema = schemaWithJson.toJSONSchema;
+  } catch {
+    toJSONSchema = undefined;
+  }
+  if (typeof toJSONSchema === "function") {
+    try {
+      return {
+        safeParse,
+        ...(options?.uiHints ? { uiHints: options.uiHints } : {}),
+        // Normalize generated schema so plugin consumers see a stable draft-07-ish shape.
+        jsonSchema: normalizeJsonSchema(
+          toJSONSchema.call(schemaWithJson, {
+            target: "draft-07",
+            io: "input",
+            unrepresentable: "any",
+          }),
+        ) as JsonSchemaObject,
+      };
+    } catch {
+      // Fall through to the permissive metadata schema. Runtime parsing still
+      // uses the original Zod schema when available.
+    }
   }
 
   return {

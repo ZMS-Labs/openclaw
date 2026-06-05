@@ -62,9 +62,53 @@ describe("buildPluginConfigSchema", () => {
     });
   });
 
+  it("keeps the schema receiver when exporting JSON schema metadata", () => {
+    const schema = {
+      propertyName: "enabled",
+      toJSONSchema(
+        this: { propertyName: string },
+        _params?: Record<string, unknown>,
+      ): Record<string, unknown> {
+        return {
+          type: "object",
+          properties: {
+            [this.propertyName]: { type: "boolean" },
+          },
+        };
+      },
+    };
+
+    const result = buildPluginConfigSchema(
+      schema as unknown as Parameters<typeof buildPluginConfigSchema>[0],
+    );
+
+    expect(result.jsonSchema).toEqual({
+      type: "object",
+      properties: {
+        enabled: { type: "boolean" },
+      },
+    });
+  });
+
   it("falls back when toJSONSchema is missing", () => {
     const legacySchema = {} as unknown as Parameters<typeof buildPluginConfigSchema>[0];
     const result = buildPluginConfigSchema(legacySchema);
+    expectJsonSchema(result, { type: "object", additionalProperties: true });
+  });
+
+  it("falls back when toJSONSchema metadata is unreadable", () => {
+    const schema = {} as Record<string, unknown>;
+    Object.defineProperty(schema, "toJSONSchema", {
+      enumerable: true,
+      get() {
+        throw new Error("toJSONSchema getter failed");
+      },
+    });
+
+    const result = buildPluginConfigSchema(
+      schema as unknown as Parameters<typeof buildPluginConfigSchema>[0],
+    );
+
     expectJsonSchema(result, { type: "object", additionalProperties: true });
   });
 
@@ -137,6 +181,60 @@ describe("buildJsonPluginConfigSchema", () => {
       error: {
         issues: [{ path: ["100001"], message: "must have required property '100001'" }],
       },
+    });
+  });
+
+  it("keeps runtime-only property name constraints during validation", () => {
+    const result = buildJsonPluginConfigSchema(
+      {
+        type: "object",
+        propertyNames: { type: "string", pattern: "^[a-z]+$" },
+        additionalProperties: true,
+      },
+      { cacheKey: "config-schema.test.property-names" },
+    );
+
+    expect(result.jsonSchema).toEqual({
+      type: "object",
+      additionalProperties: true,
+    });
+    expect(result.safeParse?.({ valid: 1 })).toEqual({
+      success: true,
+      data: { valid: 1 },
+    });
+    const invalid = result.safeParse?.({ INVALID: 1 });
+    expect(invalid).toMatchObject({ success: false });
+  });
+
+  it("skips unreadable JSON schema fields before config validation", () => {
+    const properties: Record<string, unknown> = {
+      enabled: { type: "boolean" },
+    };
+    Object.defineProperty(properties, "broken", {
+      enumerable: true,
+      get() {
+        throw new Error("property schema getter failed");
+      },
+    });
+    const result = buildJsonPluginConfigSchema(
+      {
+        type: "object",
+        additionalProperties: false,
+        properties,
+      },
+      { cacheKey: "config-schema.test.unreadable-field" },
+    );
+
+    expect(result.jsonSchema).toEqual({
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        enabled: { type: "boolean" },
+      },
+    });
+    expect(result.safeParse?.({ enabled: true })).toEqual({
+      success: true,
+      data: { enabled: true },
     });
   });
 });
