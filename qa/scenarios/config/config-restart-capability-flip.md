@@ -136,15 +136,24 @@ steps:
               value: ""
             - set: imageReplyText
               value: ""
-            - call: runAgentPrompt
-              args:
-                - ref: env
-                - sessionKey:
-                    ref: sessionKey
-                  message:
-                    expr: config.imagePrompt
-                  timeoutMs:
-                    expr: liveTurnTimeoutMs(env, config.imageTurnTimeoutMs)
+            - set: imageRunError
+              value: ""
+            - try:
+                actions:
+                  - call: runAgentPrompt
+                    args:
+                      - ref: env
+                      - sessionKey:
+                          ref: sessionKey
+                        message:
+                          expr: config.imagePrompt
+                        timeoutMs:
+                          expr: liveTurnTimeoutMs(env, config.imageTurnTimeoutMs)
+                catchAs: imageRunErrorRaw
+                catch:
+                  - set: imageRunError
+                    value:
+                      expr: "imageRunErrorRaw instanceof Error ? imageRunErrorRaw.message : String(imageRunErrorRaw ?? '')"
             - try:
                 actions:
                   - call: resolveGeneratedImagePath
@@ -183,9 +192,13 @@ steps:
               value:
                 expr: "imageReplyText.toLowerCase()"
             - assert:
+                expr: "!imageRunError || (env.mock && imageRunError === 'agent.wait returned error: agent run aborted' && Boolean(mediaPath))"
+                message:
+                  expr: "`unexpected ${config.deniedTool} agent.wait failure after capability flip: ${imageRunError}`"
+            - assert:
                 expr: "Boolean(mediaPath) || (!env.mock && /media failed|image generation failed/.test(imageReplyLower))"
                 message:
-                  expr: "`expected restored ${config.deniedTool} to either produce media or, in live mode only, surface a provider-side image failure; got ${imageReplyText}`"
+                  expr: "`expected restored ${config.deniedTool} to either produce media or, in live mode only, surface a provider-side image failure; agent.wait=${imageRunError || 'ok'}; got ${imageReplyText}`"
             # Tool-call assertion (criterion 2 of the parity completion
             # gate in #64227): the restored `image_generate` capability
             # must have actually fired as a real tool call. Without this
