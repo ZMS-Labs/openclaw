@@ -1812,6 +1812,10 @@ export function renderChat(props: ChatProps) {
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    if (vs.composerComposing || e.isComposing || e.keyCode === 229) {
+      return;
+    }
+
     // Slash menu navigation — arg mode
     if (vs.slashMenuOpen && vs.slashMenuMode === "args" && vs.slashMenuArgItems.length > 0) {
       const len = vs.slashMenuArgItems.length;
@@ -1919,9 +1923,6 @@ export function renderChat(props: ChatProps) {
 
     // Send on Enter (without shift)
     if (e.key === "Enter" && !e.shiftKey) {
-      if (e.isComposing || e.keyCode === 229) {
-        return;
-      }
       if (!props.connected) {
         return;
       }

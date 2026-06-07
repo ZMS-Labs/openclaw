@@ -1708,6 +1708,35 @@ describe("chat composer IME composition", () => {
     expect(onDraftChange).toHaveBeenCalledTimes(1);
     expect(onDraftChange).toHaveBeenLastCalledWith("当前");
   });
+
+  it("leaves keydown events to the browser while IME composition is active", () => {
+    const onSend = vi.fn();
+    const onHistoryKeydown = vi.fn(() => ({
+      handled: true,
+      preventDefault: true,
+      restoreCaret: null,
+      decision: "handled:history-up" as const,
+      historyNavigationActiveBefore: false,
+      historyNavigationActiveAfter: false,
+      selectionStart: 0,
+      selectionEnd: 0,
+      valueLength: 0,
+    }));
+    const container = renderChatView({ onHistoryKeydown, onSend });
+    const textarea = requireElement(
+      container,
+      ".agent-chat__composer-combobox > textarea",
+      "composer textarea",
+    ) as HTMLTextAreaElement;
+
+    textarea.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    textarea.value = "dangqian";
+    textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onHistoryKeydown).not.toHaveBeenCalled();
+  });
 });
 
 describe("chat attachment picker", () => {
