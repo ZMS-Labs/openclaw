@@ -1734,8 +1734,11 @@ Second paragraph should still reach the agent after Slack's preview cutoff.`;
     await saveSessionStore(
       storePath,
       {
-        [prepared.ctxPayload.SessionKey!]: { updatedAt: Date.now() },
-      } as Record<string, SessionEntry>,
+        [prepared.ctxPayload.SessionKey!]: {
+          sessionId: "existing-dm-session",
+          updatedAt: Date.now(),
+        },
+      } satisfies Record<string, SessionEntry>,
       { skipMaintenance: true },
     );
     const existing = await prepareMessageWith(
@@ -1867,8 +1870,11 @@ Second paragraph should still reach the agent after Slack's preview cutoff.`;
     await saveSessionStore(
       storePath,
       {
-        [threadKeys.sessionKey]: { updatedAt: Date.now() },
-      } as Record<string, SessionEntry>,
+        [threadKeys.sessionKey]: {
+          sessionId: "existing-thread-session",
+          updatedAt: Date.now(),
+        },
+      } satisfies Record<string, SessionEntry>,
       { skipMaintenance: true },
     );
 
@@ -2073,9 +2079,15 @@ Second paragraph should still reach the agent after Slack's preview cutoff.`;
     await saveSessionStore(
       storePath,
       {
-        "agent:main:main": { updatedAt: Date.now() },
-        "agent:main:main:thread:650.000": { updatedAt: Date.now() },
-      } as Record<string, SessionEntry>,
+        "agent:main:main": {
+          sessionId: "existing-dm-session",
+          updatedAt: Date.now(),
+        },
+        "agent:main:main:thread:650.000": {
+          sessionId: "existing-thread-session",
+          updatedAt: Date.now(),
+        },
+      } satisfies Record<string, SessionEntry>,
       { skipMaintenance: true },
     );
     const replies = vi
