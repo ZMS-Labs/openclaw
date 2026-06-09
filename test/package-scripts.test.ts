@@ -149,4 +149,10 @@ describe("package scripts", () => {
       "test/scripts/run-with-env.test.ts",
     );
   });
+
+  it("runs PowerShell installer coverage in Windows CI", () => {
+    expect(readPackageJson().scripts["test:windows:ci"]).toContain(
+      "test/scripts/install-ps1.test.ts",
+    );
+  });
 });
