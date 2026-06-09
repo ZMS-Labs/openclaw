@@ -4,7 +4,9 @@ import { buildQaCoverageInventory, renderQaCoverageMarkdownReport } from "./cove
 import { readQaScenarioPack } from "./scenario-catalog.js";
 import { buildQaScorecardTaxonomyReport, parseQaScorecardTaxonomy } from "./scorecard-taxonomy.js";
 
-function testScorecardProfiles(categoryId = "runtime.test", profileId = "release") {
+const TEST_EXECUTABLE_CATEGORY_ID = "agent-runtime-and-provider-execution.agent-turn-execution";
+
+function testScorecardProfiles(categoryId = TEST_EXECUTABLE_CATEGORY_ID, profileId = "release") {
   return [
     {
       id: "smoke-ci",
@@ -54,24 +56,25 @@ describe("qa coverage report", () => {
         .find((profile) => profile.id === "release")
         ?.categoryIds.toSorted(),
     ).toEqual([
-      "automation.cron",
-      "media.input",
-      "media.output",
-      "memory.failure",
-      "memory.recall",
-      "plugins.runtime",
-      "providers.openai",
-      "runtime.agent.turns",
-      "runtime.context.compaction",
-      "runtime.observability.trace",
-      "runtime.tools.approval",
-      "runtime.tools.core",
-      "security.secrets",
-      "ui.control",
+      "agent-runtime-and-provider-execution.agent-turn-execution",
+      "automation-cron-hooks-tasks-polling.cron-jobs",
+      "browser-automation-and-exec-sandbox-tools.tool-invocation-and-execution",
+      "browser-control-ui-and-webchat.browser-ui",
+      "media-understanding-and-media-generation.media-generation",
+      "media-understanding-and-media-generation.media-understanding",
+      "openai-codex-provider-path.responses-and-tool-compatibility",
+      "plugin-sdk-and-bundled-plugin-architecture.installing-and-running-plugins",
+      "security-auth-pairing-and-secrets.approval-policy-and-tool-safeguards",
+      "security-auth-pairing-and-secrets.credential-and-secret-hygiene",
+      "session-memory-and-context-engine.diagnostics-maintenance-and-recovery",
+      "session-memory-and-context-engine.memory",
+      "session-memory-and-context-engine.token-management",
+      "telemetry-diagnostics-and-observability.telemetry-export",
     ]);
     expect(
       inventory.scorecardTaxonomy.categories.find(
-        (category) => category.id === "plugins.external.compat",
+        (category) =>
+          category.id === "clawhub-and-external-plugin-distribution.compatibility-and-trust",
       )?.profiles,
     ).toStrictEqual([]);
     expect(inventory.scenarioPacks.map((pack) => pack.id)).toEqual([
@@ -117,13 +120,15 @@ describe("qa coverage report", () => {
     expect(report).toContain("thread-follow-up: slack-thread-follow-up");
     expect(report).toContain("## Scorecard Taxonomy");
     expect(report).toContain("- Taxonomy: stable-lts-initial (report-only)");
+    expect(report).toContain("- Maturity taxonomy: taxonomy.yaml");
+    expect(report).toContain("- Maturity score snapshot: docs/maturity-scores.yaml");
     expect(report).toContain("- Categories: 16 (7 LTS-included, 8 deferred, 1 advisory)");
     expect(report).toContain("- Profiles: 2");
     expect(report).toContain(
       "- smoke-ci: 14 categories; lanes: qa-lab-smoke-ci, openclaw-multipass-channel-smoke;",
     );
     expect(report).toContain(
-      "- runtime.tools.core (lts-included, release-blocking, mapped): profiles: release, smoke-ci; coverage: tools.apply-patch, tools.exec, tools.fs.read, tools.fs.write, tools.web-search;",
+      "- browser-automation-and-exec-sandbox-tools.tool-invocation-and-execution (browser-automation-and-exec-sandbox-tools / Tool Invocation and Execution; lts-included, release-blocking, mapped): profiles: release, smoke-ci; coverage: tools.apply-patch, tools.exec, tools.fs.read, tools.fs.write, tools.web-search;",
     );
     expect(report).toContain("### Unmapped Coverage IDs");
     expect(report).toContain("agents.subagents");
@@ -135,6 +140,8 @@ describe("qa coverage report", () => {
       id: "test-taxonomy",
       title: "Test taxonomy",
       sourceRef: "docs/concepts/qa-e2e-automation.md",
+      taxonomyRef: "taxonomy.yaml",
+      scoreSnapshotRef: "docs/maturity-scores.yaml",
       status: "initial",
       mappingAuthority: "scaffold",
       mappingOwner: "@kevinlin-openai",
@@ -142,10 +149,9 @@ describe("qa coverage report", () => {
       profiles: testScorecardProfiles(),
       categories: [
         {
-          id: "runtime.test",
-          surfaceId: "runtime.gateway",
-          surfaceName: "Runtime",
-          categoryName: "Missing test mapping",
+          id: TEST_EXECUTABLE_CATEGORY_ID,
+          taxonomySurfaceId: "agent-runtime-and-provider-execution",
+          taxonomyCategoryName: "Agent Turn Execution",
           supportStatus: "lts-included",
           releaseBlocking: true,
           requirement: "Exercise a missing mapping.",
@@ -185,17 +191,18 @@ describe("qa coverage report", () => {
       id: "test-taxonomy",
       title: "Test taxonomy",
       sourceRef: "docs/concepts/qa-e2e-automation.md",
+      taxonomyRef: "taxonomy.yaml",
+      scoreSnapshotRef: "docs/maturity-scores.yaml",
       status: "initial",
       mappingAuthority: "scaffold",
       mappingOwner: "@kevinlin-openai",
       reportOnly: true,
-      profiles: testScorecardProfiles("runtime.test", "smoke-ci"),
+      profiles: testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "smoke-ci"),
       categories: [
         {
-          id: "runtime.test",
-          surfaceId: "runtime.gateway",
-          surfaceName: "Runtime",
-          categoryName: "Release profile missing",
+          id: TEST_EXECUTABLE_CATEGORY_ID,
+          taxonomySurfaceId: "agent-runtime-and-provider-execution",
+          taxonomyCategoryName: "Agent Turn Execution",
           supportStatus: "lts-included",
           releaseBlocking: true,
           requirement: "Release-blocking rows must be selected by the release profile.",
@@ -230,17 +237,21 @@ describe("qa coverage report", () => {
       id: "test-taxonomy",
       title: "Test taxonomy",
       sourceRef: "docs/concepts/qa-e2e-automation.md",
+      taxonomyRef: "taxonomy.yaml",
+      scoreSnapshotRef: "docs/maturity-scores.yaml",
       status: "initial",
       mappingAuthority: "scaffold",
       mappingOwner: "@kevinlin-openai",
       reportOnly: true,
-      profiles: testScorecardProfiles("plugins.external.compat", "smoke-ci"),
+      profiles: testScorecardProfiles(
+        "clawhub-and-external-plugin-distribution.compatibility-and-trust",
+        "smoke-ci",
+      ),
       categories: [
         {
-          id: "plugins.external.compat",
-          surfaceId: "plugins",
-          surfaceName: "Plugins",
-          categoryName: "External plugin compatibility",
+          id: "clawhub-and-external-plugin-distribution.compatibility-and-trust",
+          taxonomySurfaceId: "clawhub-and-external-plugin-distribution",
+          taxonomyCategoryName: "Compatibility and Trust",
           supportStatus: "advisory",
           releaseBlocking: false,
           requirement: "Keep advisory compatibility out of runnable profiles.",
@@ -276,17 +287,18 @@ describe("qa coverage report", () => {
       id: "test-taxonomy",
       title: "Test taxonomy",
       sourceRef: "docs/concepts/qa-e2e-automation.md",
+      taxonomyRef: "taxonomy.yaml",
+      scoreSnapshotRef: "docs/maturity-scores.yaml",
       status: "initial",
       mappingAuthority: "scaffold",
       mappingOwner: "@kevinlin-openai",
       reportOnly: true,
-      profiles: testScorecardProfiles("runtime.test", "none"),
+      profiles: testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "none"),
       categories: [
         {
-          id: "runtime.test",
-          surfaceId: "runtime.gateway",
-          surfaceName: "Runtime",
-          categoryName: "Missing runnable profile",
+          id: TEST_EXECUTABLE_CATEGORY_ID,
+          taxonomySurfaceId: "agent-runtime-and-provider-execution",
+          taxonomyCategoryName: "Agent Turn Execution",
           supportStatus: "deferred",
           releaseBlocking: false,
           requirement: "Non-advisory rows must stay visible to runnable profiles.",
@@ -315,6 +327,231 @@ describe("qa coverage report", () => {
     ]);
   });
 
+  it("reports executable category refs missing from taxonomy.yaml", () => {
+    const taxonomy = parseQaScorecardTaxonomy({
+      version: 1,
+      id: "test-taxonomy",
+      title: "Test taxonomy",
+      sourceRef: "docs/concepts/qa-e2e-automation.md",
+      taxonomyRef: "taxonomy.yaml",
+      scoreSnapshotRef: "docs/maturity-scores.yaml",
+      status: "initial",
+      mappingAuthority: "scaffold",
+      mappingOwner: "@kevinlin-openai",
+      reportOnly: true,
+      profiles: testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "release"),
+      categories: [
+        {
+          id: TEST_EXECUTABLE_CATEGORY_ID,
+          taxonomySurfaceId: "agent-runtime-and-provider-execution",
+          taxonomyCategoryName: "Missing Taxonomy Category",
+          supportStatus: "lts-included",
+          releaseBlocking: true,
+          requirement: "Executable refs must resolve against taxonomy.yaml.",
+          evidenceRequired: "A valid taxonomy surface/category ref.",
+          evidence: {
+            profiles: ["release"],
+            liveProofRequired: false,
+            freshness: "target-ref",
+            coverageIds: ["channels.dm"],
+            scenarioRefs: ["qa/scenarios/channels/dm-chat-baseline.md"],
+            docsRefs: ["docs/concepts/qa-e2e-automation.md"],
+            codeRefs: ["extensions/qa-lab/src/suite.ts"],
+          },
+        },
+      ],
+    });
+
+    const report = buildQaScorecardTaxonomyReport({
+      taxonomy,
+      repoRoot: process.cwd(),
+      scenarios: readQaScenarioPack().scenarios,
+    });
+
+    expect(report.validationIssues.map((issue) => issue.code)).toEqual([
+      "taxonomy-category-ref-not-found",
+    ]);
+  });
+
+  it("reports profile membership refs missing from executable categories", () => {
+    const taxonomy = parseQaScorecardTaxonomy({
+      version: 1,
+      id: "test-taxonomy",
+      title: "Test taxonomy",
+      sourceRef: "docs/concepts/qa-e2e-automation.md",
+      taxonomyRef: "taxonomy.yaml",
+      scoreSnapshotRef: "docs/maturity-scores.yaml",
+      status: "initial",
+      mappingAuthority: "scaffold",
+      mappingOwner: "@kevinlin-openai",
+      reportOnly: true,
+      profiles: [
+        {
+          id: "smoke-ci",
+          description: "Test smoke profile.",
+          categoryIds: ["missing.category"],
+          lanes: [
+            {
+              id: "smoke-lane",
+              description: "Lane with stale refs.",
+              surfaceIds: ["missing-surface"],
+              categoryIds: ["missing.category"],
+            },
+          ],
+        },
+        {
+          id: "release",
+          description: "Test release profile.",
+          categoryIds: [],
+          lanes: [],
+        },
+      ],
+      categories: [
+        {
+          id: TEST_EXECUTABLE_CATEGORY_ID,
+          taxonomySurfaceId: "agent-runtime-and-provider-execution",
+          taxonomyCategoryName: "Agent Turn Execution",
+          supportStatus: "advisory",
+          releaseBlocking: false,
+          requirement: "Profile selectors must reference executable category IDs.",
+          evidenceRequired: "Invalid selector refs should be reported.",
+          evidence: {
+            profiles: [],
+            liveProofRequired: false,
+            freshness: "latest-advisory-run",
+            coverageIds: [],
+            scenarioRefs: [],
+            docsRefs: ["docs/concepts/qa-e2e-automation.md"],
+            codeRefs: ["extensions/qa-lab/src/suite.ts"],
+          },
+        },
+      ],
+    });
+
+    const report = buildQaScorecardTaxonomyReport({
+      taxonomy,
+      repoRoot: process.cwd(),
+      scenarios: readQaScenarioPack().scenarios,
+    });
+
+    expect(report.validationIssues.map((issue) => issue.code)).toEqual([
+      "profile-category-ref-not-found",
+      "profile-surface-ref-not-found",
+      "profile-category-ref-not-found",
+    ]);
+  });
+
+  it("reports retired profile names without accepting them as current profiles", () => {
+    const taxonomy = parseQaScorecardTaxonomy({
+      version: 1,
+      id: "test-taxonomy",
+      title: "Test taxonomy",
+      sourceRef: "docs/concepts/qa-e2e-automation.md",
+      taxonomyRef: "taxonomy.yaml",
+      scoreSnapshotRef: "docs/maturity-scores.yaml",
+      status: "initial",
+      mappingAuthority: "scaffold",
+      mappingOwner: "@kevinlin-openai",
+      reportOnly: true,
+      profiles: [
+        ...testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "release"),
+        {
+          id: "extended",
+          description: "Retired profile.",
+          categoryIds: [TEST_EXECUTABLE_CATEGORY_ID],
+          lanes: [],
+        },
+      ],
+      categories: [
+        {
+          id: TEST_EXECUTABLE_CATEGORY_ID,
+          taxonomySurfaceId: "agent-runtime-and-provider-execution",
+          taxonomyCategoryName: "Agent Turn Execution",
+          supportStatus: "lts-included",
+          releaseBlocking: true,
+          requirement: "Only smoke-ci and release are current profiles.",
+          evidenceRequired: "Retired profile names should be reported.",
+          evidence: {
+            profiles: ["release", "extended"],
+            liveProofRequired: false,
+            freshness: "target-ref",
+            coverageIds: ["channels.dm"],
+            scenarioRefs: ["qa/scenarios/channels/dm-chat-baseline.md"],
+            docsRefs: ["docs/concepts/qa-e2e-automation.md"],
+            codeRefs: ["extensions/qa-lab/src/suite.ts"],
+          },
+        },
+      ],
+    });
+
+    const report = buildQaScorecardTaxonomyReport({
+      taxonomy,
+      repoRoot: process.cwd(),
+      scenarios: readQaScenarioPack().scenarios,
+    });
+
+    expect(report.validationIssues.map((issue) => issue.code)).toEqual([
+      "unsupported-profile-name",
+      "unsupported-profile-name",
+    ]);
+  });
+
+  it("does not count retired profiles as runnable category membership", () => {
+    const taxonomy = parseQaScorecardTaxonomy({
+      version: 1,
+      id: "test-taxonomy",
+      title: "Test taxonomy",
+      sourceRef: "docs/concepts/qa-e2e-automation.md",
+      taxonomyRef: "taxonomy.yaml",
+      scoreSnapshotRef: "docs/maturity-scores.yaml",
+      status: "initial",
+      mappingAuthority: "scaffold",
+      mappingOwner: "@kevinlin-openai",
+      reportOnly: true,
+      profiles: [
+        ...testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "none"),
+        {
+          id: "extended",
+          description: "Retired profile.",
+          categoryIds: [TEST_EXECUTABLE_CATEGORY_ID],
+          lanes: [],
+        },
+      ],
+      categories: [
+        {
+          id: TEST_EXECUTABLE_CATEGORY_ID,
+          taxonomySurfaceId: "agent-runtime-and-provider-execution",
+          taxonomyCategoryName: "Agent Turn Execution",
+          supportStatus: "deferred",
+          releaseBlocking: false,
+          requirement: "Retired profile names must not satisfy current runnable coverage.",
+          evidenceRequired: "Only smoke-ci or release should count as runnable profile proof.",
+          evidence: {
+            profiles: ["extended"],
+            liveProofRequired: false,
+            freshness: "target-ref",
+            coverageIds: ["channels.dm"],
+            scenarioRefs: ["qa/scenarios/channels/dm-chat-baseline.md"],
+            docsRefs: ["docs/concepts/qa-e2e-automation.md"],
+            codeRefs: ["extensions/qa-lab/src/suite.ts"],
+          },
+        },
+      ],
+    });
+
+    const report = buildQaScorecardTaxonomyReport({
+      taxonomy,
+      repoRoot: process.cwd(),
+      scenarios: readQaScenarioPack().scenarios,
+    });
+
+    expect(report.validationIssues.map((issue) => issue.code)).toEqual([
+      "unsupported-profile-name",
+      "unsupported-profile-name",
+      "non-advisory-category-missing-profile-membership",
+    ]);
+  });
+
   it("rejects taxonomy refs outside the repository", () => {
     expect(() =>
       parseQaScorecardTaxonomy({
@@ -322,17 +559,18 @@ describe("qa coverage report", () => {
         id: "bad-taxonomy",
         title: "Bad taxonomy",
         sourceRef: "../rfcs/rfcs/0007-e2e-qa-lab-scorecard-consolidation.md",
+        taxonomyRef: "taxonomy.yaml",
+        scoreSnapshotRef: "docs/maturity-scores.yaml",
         status: "initial",
         mappingAuthority: "scaffold",
         mappingOwner: "@kevinlin-openai",
         reportOnly: true,
-        profiles: testScorecardProfiles("runtime.test", "smoke-ci"),
+        profiles: testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "smoke-ci"),
         categories: [
           {
-            id: "runtime.test",
-            surfaceId: "runtime.gateway",
-            surfaceName: "Runtime",
-            categoryName: "Bad docs ref",
+            id: TEST_EXECUTABLE_CATEGORY_ID,
+            taxonomySurfaceId: "agent-runtime-and-provider-execution",
+            taxonomyCategoryName: "Agent Turn Execution",
             supportStatus: "deferred",
             releaseBlocking: false,
             requirement: "Reject escaped refs.",

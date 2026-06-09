@@ -1,10 +1,28 @@
 // Qa Lab plugin module validates the report-only scorecard taxonomy fixture.
 import fs from "node:fs";
 import path from "node:path";
+import YAML from "yaml";
 import { z } from "zod";
 import type { QaSeedScenarioWithSource } from "./scenario-catalog.js";
 
 export const QA_SCORECARD_TAXONOMY_PATH = "qa/scorecard/stable-lts-taxonomy.json";
+export const QA_MATURITY_TAXONOMY_PATH = "taxonomy.yaml";
+
+const QA_SCORECARD_PROFILE_IDS = ["smoke-ci", "release"] as const;
+const QA_SCORECARD_RETIRED_PROFILE_IDS = new Set([
+  "core",
+  "full",
+  "extended",
+  "soak",
+  "manual",
+  "advisory",
+]);
+
+function isQaScorecardProfileId(
+  profileId: string,
+): profileId is (typeof QA_SCORECARD_PROFILE_IDS)[number] {
+  return QA_SCORECARD_PROFILE_IDS.includes(profileId as (typeof QA_SCORECARD_PROFILE_IDS)[number]);
+}
 
 const qaScorecardIdSchema = z
   .string()
@@ -27,8 +45,6 @@ const qaScorecardRepoRefSchema = z
   .refine(isRepoRootRelativeRef, {
     message: "repo refs must not be absolute or contain parent-directory segments",
   });
-
-const qaScorecardProfileIdSchema = z.enum(["smoke-ci", "release"]);
 
 const qaScorecardFreshnessRuleSchema = z.enum([
   "target-ref",
@@ -54,7 +70,7 @@ const qaScorecardProfileLaneSchema = z.object({
 });
 
 const qaScorecardProfileSchema = z.object({
-  id: qaScorecardProfileIdSchema,
+  id: qaScorecardIdSchema,
   description: z.string().trim().min(1),
   categoryIds: z.array(qaScorecardIdSchema).default([]),
   lanes: z.array(qaScorecardProfileLaneSchema).default([]),
@@ -62,15 +78,14 @@ const qaScorecardProfileSchema = z.object({
 
 const qaScorecardCategorySchema = z.object({
   id: qaScorecardIdSchema,
-  surfaceId: qaScorecardIdSchema,
-  surfaceName: z.string().trim().min(1),
-  categoryName: z.string().trim().min(1),
+  taxonomySurfaceId: qaScorecardIdSchema,
+  taxonomyCategoryName: z.string().trim().min(1),
   supportStatus: qaScorecardSupportStatusSchema,
   releaseBlocking: z.boolean(),
   requirement: z.string().trim().min(1),
   evidenceRequired: z.string().trim().min(1),
   evidence: z.object({
-    profiles: z.array(qaScorecardProfileIdSchema).default([]),
+    profiles: z.array(qaScorecardIdSchema).default([]),
     liveProofRequired: z.boolean(),
     freshness: qaScorecardFreshnessRuleSchema,
     coverageIds: z.array(qaScorecardIdSchema).default([]),
@@ -87,6 +102,8 @@ const qaScorecardTaxonomySchema = z
     id: qaScorecardIdSchema,
     title: z.string().trim().min(1),
     sourceRef: qaScorecardRepoRefSchema,
+    taxonomyRef: qaScorecardRepoRefSchema,
+    scoreSnapshotRef: qaScorecardRepoRefSchema.optional(),
     status: z.enum(["initial", "candidate", "active"]),
     mappingAuthority: z.enum(["scaffold", "authoritative"]),
     mappingOwner: z.string().trim().min(1),
@@ -132,7 +149,7 @@ const qaScorecardTaxonomySchema = z
       }
     }
 
-    for (const requiredProfileId of qaScorecardProfileIdSchema.options) {
+    for (const requiredProfileId of QA_SCORECARD_PROFILE_IDS) {
       if (!seenProfileIds.has(requiredProfileId)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -143,7 +160,6 @@ const qaScorecardTaxonomySchema = z
     }
 
     const seenCategoryIds = new Set<string>();
-    const seenSurfaceIds = new Set<string>();
     for (const [categoryIndex, category] of taxonomy.categories.entries()) {
       if (seenCategoryIds.has(category.id)) {
         ctx.addIssue({
@@ -153,7 +169,6 @@ const qaScorecardTaxonomySchema = z
         });
       }
       seenCategoryIds.add(category.id);
-      seenSurfaceIds.add(category.surfaceId);
 
       if (category.supportStatus === "lts-included" && !category.releaseBlocking) {
         ctx.addIssue({
@@ -182,42 +197,29 @@ const qaScorecardTaxonomySchema = z
         seenCoverageIds.add(coverageId);
       }
     }
-
-    for (const [profileIndex, profile] of taxonomy.profiles.entries()) {
-      for (const [categoryIndex, categoryId] of profile.categoryIds.entries()) {
-        if (!seenCategoryIds.has(categoryId)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["profiles", profileIndex, "categoryIds", categoryIndex],
-            message: `profile ${profile.id} references unknown category ${categoryId}`,
-          });
-        }
-      }
-      for (const [laneIndex, lane] of profile.lanes.entries()) {
-        for (const [surfaceIndex, surfaceId] of lane.surfaceIds.entries()) {
-          if (!seenSurfaceIds.has(surfaceId)) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ["profiles", profileIndex, "lanes", laneIndex, "surfaceIds", surfaceIndex],
-              message: `profile ${profile.id} lane ${lane.id} references unknown surface ${surfaceId}`,
-            });
-          }
-        }
-        for (const [categoryIndex, categoryId] of lane.categoryIds.entries()) {
-          if (!seenCategoryIds.has(categoryId)) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ["profiles", profileIndex, "lanes", laneIndex, "categoryIds", categoryIndex],
-              message: `profile ${profile.id} lane ${lane.id} references unknown category ${categoryId}`,
-            });
-          }
-        }
-      }
-    }
   });
+
+const qaMaturityCategorySchema = z.object({
+  name: z.string().trim().min(1),
+});
+
+const qaMaturitySurfaceSchema = z.object({
+  id: qaScorecardIdSchema,
+  name: z.string().trim().min(1),
+  level: z.string().trim().min(1).optional(),
+  level_code: z.string().trim().min(1).optional(),
+  categories: z.array(qaMaturityCategorySchema).default([]),
+});
+
+const qaMaturityTaxonomySchema = z.object({
+  version: z.number(),
+  title: z.string().trim().min(1),
+  surfaces: z.array(qaMaturitySurfaceSchema).default([]),
+});
 
 export type QaScorecardTaxonomy = z.infer<typeof qaScorecardTaxonomySchema>;
 export type QaScorecardTaxonomyCategory = QaScorecardTaxonomy["categories"][number];
+type QaMaturityTaxonomy = z.infer<typeof qaMaturityTaxonomySchema>;
 
 export type QaScorecardValidationIssueCode =
   | "coverage-id-not-found"
@@ -226,10 +228,16 @@ export type QaScorecardValidationIssueCode =
   | "docs-ref-not-found"
   | "code-ref-not-found"
   | "source-ref-not-found"
+  | "taxonomy-ref-not-found"
+  | "taxonomy-category-ref-not-found"
+  | "profile-category-ref-not-found"
+  | "profile-surface-ref-not-found"
+  | "score-snapshot-ref-not-found"
   | "blocking-category-without-evidence-mapping"
   | "non-advisory-category-missing-profile-membership"
   | "release-blocking-category-missing-release-profile"
   | "advisory-category-has-profile-membership"
+  | "unsupported-profile-name"
   | "category-profile-missing-top-level-membership"
   | "profile-membership-missing-category-profile"
   | "profile-lane-misuses-multipass-runner"
@@ -245,8 +253,8 @@ export type QaScorecardValidationIssue = {
 
 export type QaScorecardCategoryMappingReport = {
   id: string;
-  surfaceId: string;
-  categoryName: string;
+  taxonomySurfaceId: string;
+  taxonomyCategoryName: string;
   supportStatus: string;
   releaseBlocking: boolean;
   mappingStatus: "mapped" | "partial" | "missing";
@@ -269,6 +277,8 @@ export type QaScorecardTaxonomyReport = {
   taxonomyPath: string | null;
   taxonomyId: string | null;
   title: string | null;
+  taxonomyRef: string | null;
+  scoreSnapshotRef: string | null;
   status: string | null;
   mappingAuthority: string | null;
   mappingOwner: string | null;
@@ -346,6 +356,49 @@ export function readQaScorecardTaxonomy(): QaScorecardTaxonomy | null {
   );
 }
 
+function parseQaMaturityTaxonomy(value: unknown, label = QA_MATURITY_TAXONOMY_PATH) {
+  const parsed = qaMaturityTaxonomySchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  const issues = parsed.error.issues
+    .map((issue) => `${formatZodIssuePath(issue.path)}: ${issue.message}`)
+    .join("; ");
+  throw new Error(`${label}: ${issues}`);
+}
+
+function readQaMaturityTaxonomy(repoRoot: string | undefined, taxonomyRef: string) {
+  const taxonomyPath = repoRoot ? path.join(repoRoot, taxonomyRef) : resolveRepoPath(taxonomyRef);
+  if (!taxonomyPath || !fs.existsSync(taxonomyPath)) {
+    return null;
+  }
+  return parseQaMaturityTaxonomy(
+    YAML.parse(fs.readFileSync(taxonomyPath, "utf8")) as unknown,
+    taxonomyRef,
+  );
+}
+
+function maturityCategoryKey(surfaceId: string, categoryName: string) {
+  return `${surfaceId}\0${categoryName}`;
+}
+
+function buildMaturityCategoryKeys(taxonomy: QaMaturityTaxonomy | null) {
+  const categoryKeys = new Set<string>();
+  if (!taxonomy) {
+    return categoryKeys;
+  }
+  for (const surface of taxonomy.surfaces) {
+    for (const category of surface.categories) {
+      categoryKeys.add(maturityCategoryKey(surface.id, category.name));
+    }
+  }
+  return categoryKeys;
+}
+
+function buildMaturitySurfaceIds(taxonomy: QaMaturityTaxonomy | null) {
+  return new Set((taxonomy?.surfaces ?? []).map((surface) => surface.id));
+}
+
 function scenarioCoverageIds(scenario: QaSeedScenarioWithSource) {
   return [...(scenario.coverage?.primary ?? []), ...(scenario.coverage?.secondary ?? [])];
 }
@@ -396,6 +449,8 @@ export function buildQaScorecardTaxonomyReport(params: {
       taxonomyPath: params.taxonomyPath ?? null,
       taxonomyId: null,
       title: null,
+      taxonomyRef: null,
+      scoreSnapshotRef: null,
       status: null,
       mappingAuthority: null,
       mappingOwner: null,
@@ -437,9 +492,36 @@ export function buildQaScorecardTaxonomyReport(params: {
   const mappedCoverageIds = new Set<string>();
   const mappedScenarioRefs = new Set<string>();
   const categoryIds = new Set(params.taxonomy.categories.map((category) => category.id));
+  const maturityTaxonomy = readQaMaturityTaxonomy(params.repoRoot, params.taxonomy.taxonomyRef);
+  const maturityCategoryKeys = buildMaturityCategoryKeys(maturityTaxonomy);
+  const maturitySurfaceIds = buildMaturitySurfaceIds(maturityTaxonomy);
   const profileCategoryIdsByCategoryId = new Map<string, Set<string>>();
   const profiles = params.taxonomy.profiles.map((profile) => {
+    const supportedProfile = isQaScorecardProfileId(profile.id);
+    if (!supportedProfile) {
+      issues.push({
+        code: "unsupported-profile-name",
+        severity: "warning",
+        ref: profile.id,
+        message: QA_SCORECARD_RETIRED_PROFILE_IDS.has(profile.id)
+          ? `${profile.id} is a retired scorecard profile name; use smoke-ci or release`
+          : `${profile.id} is not a supported scorecard profile; use smoke-ci or release`,
+      });
+    }
+
     for (const categoryId of profile.categoryIds) {
+      if (!categoryIds.has(categoryId)) {
+        issues.push({
+          code: "profile-category-ref-not-found",
+          severity: "warning",
+          ref: categoryId,
+          message: `${profile.id} profile references missing executable scorecard category ${categoryId}`,
+        });
+        continue;
+      }
+      if (!supportedProfile) {
+        continue;
+      }
       const profileIds = profileCategoryIdsByCategoryId.get(categoryId) ?? new Set<string>();
       profileIds.add(profile.id);
       profileCategoryIdsByCategoryId.set(categoryId, profileIds);
@@ -455,6 +537,28 @@ export function buildQaScorecardTaxonomyReport(params: {
           ref: lane.id,
           message: `${profile.id} lane ${lane.id} uses multipass as a runner; RFC 0007 multipass means the openclaw/multipass channel SDK driver on a host runner`,
         });
+      }
+      if (maturityTaxonomy) {
+        for (const surfaceId of lane.surfaceIds) {
+          if (!maturitySurfaceIds.has(surfaceId)) {
+            issues.push({
+              code: "profile-surface-ref-not-found",
+              severity: "warning",
+              ref: surfaceId,
+              message: `${profile.id} lane ${lane.id} references missing taxonomy surface ${surfaceId}`,
+            });
+          }
+        }
+      }
+      for (const categoryId of lane.categoryIds) {
+        if (!categoryIds.has(categoryId)) {
+          issues.push({
+            code: "profile-category-ref-not-found",
+            severity: "warning",
+            ref: categoryId,
+            message: `${profile.id} lane ${lane.id} references missing executable scorecard category ${categoryId}`,
+          });
+        }
       }
     }
 
@@ -473,17 +577,66 @@ export function buildQaScorecardTaxonomyReport(params: {
       message: `Scorecard taxonomy references missing source ref ${params.taxonomy.sourceRef}`,
     });
   }
+  if (!pathExists(params.repoRoot, params.taxonomy.taxonomyRef) || !maturityTaxonomy) {
+    issues.push({
+      code: "taxonomy-ref-not-found",
+      severity: "warning",
+      ref: params.taxonomy.taxonomyRef,
+      message: `Scorecard executable mapping references missing maturity taxonomy ${params.taxonomy.taxonomyRef}`,
+    });
+  }
+  if (
+    params.taxonomy.scoreSnapshotRef &&
+    !pathExists(params.repoRoot, params.taxonomy.scoreSnapshotRef)
+  ) {
+    issues.push({
+      code: "score-snapshot-ref-not-found",
+      severity: "warning",
+      ref: params.taxonomy.scoreSnapshotRef,
+      message: `Scorecard executable mapping references missing score snapshot ${params.taxonomy.scoreSnapshotRef}`,
+    });
+  }
 
   for (const category of params.taxonomy.categories) {
     const missingCoverageIds: string[] = [];
     const missingScenarioRefs: string[] = [];
     const declaredProfileIds = new Set(category.evidence.profiles);
+    const supportedDeclaredProfileIds = new Set(
+      [...declaredProfileIds].filter(isQaScorecardProfileId),
+    );
     const membershipProfileIds =
       profileCategoryIdsByCategoryId.get(category.id) ?? new Set<string>();
     const sortedMembershipProfileIds = [...membershipProfileIds].toSorted();
+    const maturityKey = maturityCategoryKey(
+      category.taxonomySurfaceId,
+      category.taxonomyCategoryName,
+    );
+
+    if (maturityTaxonomy && !maturityCategoryKeys.has(maturityKey)) {
+      issues.push({
+        code: "taxonomy-category-ref-not-found",
+        severity: "warning",
+        categoryId: category.id,
+        ref: `${category.taxonomySurfaceId}/${category.taxonomyCategoryName}`,
+        message: `${category.id} references missing maturity taxonomy category ${category.taxonomySurfaceId}/${category.taxonomyCategoryName}`,
+      });
+    }
 
     for (const profileId of declaredProfileIds) {
-      if (!membershipProfileIds.has(profileId)) {
+      const supportedProfile = isQaScorecardProfileId(profileId);
+      if (!supportedProfile) {
+        issues.push({
+          code: "unsupported-profile-name",
+          severity: "warning",
+          categoryId: category.id,
+          ref: profileId,
+          message: QA_SCORECARD_RETIRED_PROFILE_IDS.has(profileId)
+            ? `${category.id} declares retired profile ${profileId}; use smoke-ci or release`
+            : `${category.id} declares unsupported profile ${profileId}; use smoke-ci or release`,
+        });
+      }
+
+      if (supportedProfile && !membershipProfileIds.has(profileId)) {
         issues.push({
           code: "category-profile-missing-top-level-membership",
           severity: "warning",
@@ -534,7 +687,7 @@ export function buildQaScorecardTaxonomyReport(params: {
     if (
       category.supportStatus !== "advisory" &&
       membershipProfileIds.size === 0 &&
-      declaredProfileIds.size === 0
+      supportedDeclaredProfileIds.size === 0
     ) {
       issues.push({
         code: "non-advisory-category-missing-profile-membership",
@@ -630,8 +783,8 @@ export function buildQaScorecardTaxonomyReport(params: {
           : "mapped";
     categories.push({
       id: category.id,
-      surfaceId: category.surfaceId,
-      categoryName: category.categoryName,
+      taxonomySurfaceId: category.taxonomySurfaceId,
+      taxonomyCategoryName: category.taxonomyCategoryName,
       supportStatus: category.supportStatus,
       releaseBlocking: category.releaseBlocking,
       mappingStatus,
@@ -654,6 +807,8 @@ export function buildQaScorecardTaxonomyReport(params: {
     taxonomyPath: params.taxonomyPath ?? QA_SCORECARD_TAXONOMY_PATH,
     taxonomyId: params.taxonomy.id,
     title: params.taxonomy.title,
+    taxonomyRef: params.taxonomy.taxonomyRef,
+    scoreSnapshotRef: params.taxonomy.scoreSnapshotRef ?? null,
     status: params.taxonomy.status,
     mappingAuthority: params.taxonomy.mappingAuthority,
     mappingOwner: params.taxonomy.mappingOwner,

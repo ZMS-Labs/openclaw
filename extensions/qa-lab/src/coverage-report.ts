@@ -321,6 +321,10 @@ function pushScorecardTaxonomyLines(lines: string[], report: QaScorecardTaxonomy
   lines.push("## Scorecard Taxonomy", "");
   lines.push(`- Fixture: ${report.taxonomyPath ?? "missing"}`);
   lines.push(`- Taxonomy: ${report.taxonomyId ?? "missing"} (${mode})`);
+  lines.push(`- Maturity taxonomy: ${report.taxonomyRef ?? "missing"}`);
+  if (report.scoreSnapshotRef) {
+    lines.push(`- Maturity score snapshot: ${report.scoreSnapshotRef}`);
+  }
   lines.push(`- Mapping authority: ${report.mappingAuthority ?? "unknown"}`);
   lines.push(`- Mapping owner: ${report.mappingOwner ?? "unknown"}`);
   lines.push(
@@ -354,7 +358,7 @@ function pushScorecardTaxonomyLines(lines: string[], report: QaScorecardTaxonomy
         category.scenarioRefs.length > 0 ? category.scenarioRefs.join(", ") : "none";
       const profiles = category.profiles.length > 0 ? category.profiles.join(", ") : "none";
       lines.push(
-        `- ${category.id} (${category.supportStatus}, ${blocking}, ${category.mappingStatus}): profiles: ${profiles}; coverage: ${coverage}; scenarios: ${scenarios}`,
+        `- ${category.id} (${category.taxonomySurfaceId} / ${category.taxonomyCategoryName}; ${category.supportStatus}, ${blocking}, ${category.mappingStatus}): profiles: ${profiles}; coverage: ${coverage}; scenarios: ${scenarios}`,
       );
     }
     lines.push("");
