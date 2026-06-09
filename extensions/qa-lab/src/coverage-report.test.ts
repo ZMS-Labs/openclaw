@@ -124,7 +124,7 @@ describe("qa coverage report", () => {
     );
     expect(report).toContain("thread-follow-up: slack-thread-follow-up");
     expect(report).toContain("## Scorecard Taxonomy");
-    expect(report).toContain("- Taxonomy: stable-lts-initial (report-only)");
+    expect(report).toContain("- Mapping ID: stable-lts-initial (report-only)");
     expect(report).toContain("- Maturity taxonomy: taxonomy.yaml");
     expect(report).toContain("- Maturity score snapshot: docs/maturity-scores.yaml");
     expect(report).toContain("- Categories: 16 (7 LTS-included, 8 deferred, 1 advisory)");
@@ -148,7 +148,7 @@ describe("qa coverage report", () => {
       scoreSnapshotRef: "docs/maturity-scores.yaml",
       status: "initial",
       mappingAuthority: "scaffold",
-      mappingOwner: "@kevinlin-openai",
+      mappingOwner: "maturity-scorecard-maintainers",
       reportOnly: true,
       profiles: testScorecardProfiles(),
       categories: [
@@ -198,7 +198,7 @@ describe("qa coverage report", () => {
       scoreSnapshotRef: "docs/maturity-scores.yaml",
       status: "initial",
       mappingAuthority: "scaffold",
-      mappingOwner: "@kevinlin-openai",
+      mappingOwner: "maturity-scorecard-maintainers",
       reportOnly: true,
       profiles: testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "smoke-ci"),
       categories: [
@@ -243,7 +243,7 @@ describe("qa coverage report", () => {
       scoreSnapshotRef: "docs/maturity-scores.yaml",
       status: "initial",
       mappingAuthority: "scaffold",
-      mappingOwner: "@kevinlin-openai",
+      mappingOwner: "maturity-scorecard-maintainers",
       reportOnly: true,
       profiles: testScorecardProfiles(
         "clawhub-and-external-plugin-distribution.compatibility-and-trust",
@@ -292,7 +292,7 @@ describe("qa coverage report", () => {
       scoreSnapshotRef: "docs/maturity-scores.yaml",
       status: "initial",
       mappingAuthority: "scaffold",
-      mappingOwner: "@kevinlin-openai",
+      mappingOwner: "maturity-scorecard-maintainers",
       reportOnly: true,
       profiles: testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "none"),
       categories: [
@@ -337,7 +337,7 @@ describe("qa coverage report", () => {
       scoreSnapshotRef: "docs/maturity-scores.yaml",
       status: "initial",
       mappingAuthority: "scaffold",
-      mappingOwner: "@kevinlin-openai",
+      mappingOwner: "maturity-scorecard-maintainers",
       reportOnly: true,
       profiles: testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "release"),
       categories: [
@@ -382,7 +382,7 @@ describe("qa coverage report", () => {
       scoreSnapshotRef: "docs/maturity-scores.yaml",
       status: "initial",
       mappingAuthority: "scaffold",
-      mappingOwner: "@kevinlin-openai",
+      mappingOwner: "maturity-scorecard-maintainers",
       reportOnly: true,
       profiles: [
         {
@@ -438,7 +438,7 @@ describe("qa coverage report", () => {
       scoreSnapshotRef: "docs/maturity-scores.yaml",
       status: "initial",
       mappingAuthority: "scaffold",
-      mappingOwner: "@kevinlin-openai",
+      mappingOwner: "maturity-scorecard-maintainers",
       reportOnly: true,
       profiles: [
         ...testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "release"),
@@ -491,7 +491,7 @@ describe("qa coverage report", () => {
       scoreSnapshotRef: "docs/maturity-scores.yaml",
       status: "initial",
       mappingAuthority: "scaffold",
-      mappingOwner: "@kevinlin-openai",
+      mappingOwner: "maturity-scorecard-maintainers",
       reportOnly: true,
       profiles: [
         ...testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "none"),
@@ -549,7 +549,7 @@ describe("qa coverage report", () => {
         scoreSnapshotRef: "docs/maturity-scores.yaml",
         status: "initial",
         mappingAuthority: "scaffold",
-        mappingOwner: "@kevinlin-openai",
+        mappingOwner: "maturity-scorecard-maintainers",
         reportOnly: true,
         profiles: testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "smoke-ci"),
         categories: [

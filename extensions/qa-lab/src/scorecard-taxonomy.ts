@@ -1,11 +1,11 @@
-// Qa Lab plugin module validates the report-only scorecard taxonomy fixture.
+// Qa Lab plugin module validates the scorecard evidence mapping overlay.
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { z } from "zod";
 import type { QaSeedScenarioWithSource } from "./scenario-catalog.js";
 
-export const QA_SCORECARD_TAXONOMY_PATH = "qa/scorecard/maturity-evidence-map.yaml";
+export const QA_SCORECARD_TAXONOMY_PATH = "taxonomy-mappings.yaml";
 export const QA_MATURITY_TAXONOMY_PATH = "taxonomy.yaml";
 
 const QA_SCORECARD_PROFILE_IDS = ["smoke-ci", "release"] as const;
@@ -310,8 +310,8 @@ function resolveRepoPath(relativePath: string, kind: "file" | "directory" = "fil
   return null;
 }
 
-function repoRootFromFixturePath(fixturePath: string) {
-  return path.dirname(path.dirname(path.dirname(fixturePath)));
+function repoRootFromMappingPath(mappingPath: string) {
+  return path.dirname(mappingPath);
 }
 
 function formatZodIssuePath(pathLocal: PropertyKey[]) {
@@ -425,7 +425,7 @@ export function buildQaScorecardTaxonomyReport(params: {
       code: "taxonomy-fixture-not-found",
       severity: "warning",
       ref: QA_SCORECARD_TAXONOMY_PATH,
-      message: `Scorecard taxonomy fixture not found at ${QA_SCORECARD_TAXONOMY_PATH}`,
+      message: `Scorecard evidence mapping not found at ${QA_SCORECARD_TAXONOMY_PATH}`,
     } satisfies QaScorecardValidationIssue;
     return {
       taxonomyPath: params.taxonomyPath ?? null,
@@ -784,7 +784,7 @@ export function readQaScorecardTaxonomyReport(scenarios: readonly QaSeedScenario
   return buildQaScorecardTaxonomyReport({
     taxonomy,
     taxonomyPath: taxonomyPath ? QA_SCORECARD_TAXONOMY_PATH : null,
-    repoRoot: taxonomyPath ? repoRootFromFixturePath(taxonomyPath) : undefined,
+    repoRoot: taxonomyPath ? repoRootFromMappingPath(taxonomyPath) : undefined,
     scenarios,
   });
 }

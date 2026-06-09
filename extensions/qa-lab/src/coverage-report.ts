@@ -319,8 +319,8 @@ function pushScenarioPackLines(lines: string[], packs: readonly QaCoverageScenar
 function pushScorecardTaxonomyLines(lines: string[], report: QaScorecardTaxonomyReport) {
   const mode = report.reportOnly ? "report-only" : "blocking";
   lines.push("## Scorecard Taxonomy", "");
-  lines.push(`- Fixture: ${report.taxonomyPath ?? "missing"}`);
-  lines.push(`- Taxonomy: ${report.taxonomyId ?? "missing"} (${mode})`);
+  lines.push(`- Mapping: ${report.taxonomyPath ?? "missing"}`);
+  lines.push(`- Mapping ID: ${report.taxonomyId ?? "missing"} (${mode})`);
   lines.push(`- Maturity taxonomy: ${report.taxonomy?.sourcePath ?? "missing"}`);
   if (report.scoreSnapshotRef) {
     lines.push(`- Maturity score snapshot: ${report.scoreSnapshotRef}`);
