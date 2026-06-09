@@ -1226,6 +1226,65 @@ describe("embedded attempt session lock lifecycle", () => {
     expect(firstController.hasSessionTakeover()).toBe(false);
   });
 
+  it("reproduces orphaned trailing user repair tripping the prompt fence", async () => {
+    const sessionFile = await createTempSessionFile();
+    const release = vi.fn(async () => {});
+    const acquireSessionWriteLockLocal39 = vi.fn(async () => ({ release }));
+    const controller = await createEmbeddedAttemptSessionLockController({
+      acquireSessionWriteLock: acquireSessionWriteLockLocal39,
+      lockOptions: { ...lockOptions, sessionFile },
+    });
+    const sessionManager = SessionManager.open(sessionFile);
+    const firstKeptEntryId = sessionManager.appendMessage({
+      role: "user",
+      content: "old question",
+      timestamp: 1,
+    });
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "old answer" }],
+      api: "messages",
+      provider: "openclaw",
+      model: "session-lock-test",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "stop",
+      timestamp: 2,
+    });
+    const compactionId = sessionManager.appendCompaction(
+      "threshold summary",
+      firstKeptEntryId,
+      160_001,
+    );
+    sessionManager.appendMessage({
+      role: "user",
+      content: "please continue",
+      timestamp: 3,
+    });
+
+    await controller.releaseForPrompt();
+
+    // Mirrors the HF Space failure: the next turn repairs the orphaned trailing
+    // user by branching back to the compaction row, then appends the new user
+    // turn as OpenClaw-owned transcript progress while the prompt lock is
+    // released. The current fence treats that owned append as a takeover.
+    sessionManager.branch(compactionId);
+    sessionManager.appendMessage({
+      role: "user",
+      content: "please continue",
+      timestamp: 4,
+    });
+
+    await expect(controller.withSessionWriteLock(() => "finalize")).resolves.toBe("finalize");
+    expect(controller.hasSessionTakeover()).toBe(false);
+  });
+
   it("allows post-prompt writes after the prompt context publishes an owned transcript write", async () => {
     const sessionFile = await createTempSessionFile();
     const releases: string[] = [];
