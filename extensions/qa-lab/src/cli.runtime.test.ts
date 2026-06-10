@@ -304,6 +304,18 @@ describe("qa cli runtime", () => {
     expect(runQaSuiteFromRuntime).not.toHaveBeenCalled();
   });
 
+  it("rejects qa profile runs whose profile is not declared in the taxonomy mapping", async () => {
+    await expect(
+      runQaProfileCommand({
+        repoRoot: "/tmp/openclaw-repo",
+        profile: "nightly",
+      }),
+    ).rejects.toThrow(
+      "qa run --profile nightly is not declared in taxonomy-mappings.yaml. Available profiles: smoke-ci, release.",
+    );
+    expect(runQaSuiteFromRuntime).not.toHaveBeenCalled();
+  });
+
   it("resolves suite repo-root-relative paths before dispatching", async () => {
     await runQaSuiteCommand({
       repoRoot: "/tmp/openclaw-repo",

@@ -568,7 +568,7 @@ export async function runQaLabSelfCheckCommand(opts: { repoRoot?: string; output
   }
 }
 
-type QaRunProfile = "smoke-ci" | "release";
+type QaRunProfile = string;
 
 export async function runQaProfileCommand(opts: {
   repoRoot?: string;
@@ -587,6 +587,7 @@ export async function runQaProfileCommand(opts: {
   const profile = normalizeQaRunProfile(opts.profile);
   const scenarioPack = readQaScenarioPack();
   const scorecardReport = readQaScorecardTaxonomyReport(scenarioPack.scenarios);
+  assertQaRunProfileExists(scorecardReport, profile);
   const categories = scorecardReport.categories.filter((category) =>
     qaScorecardCategoryMatchesRunProfile(category, {
       profile,
@@ -638,10 +639,24 @@ export async function runQaProfileCommand(opts: {
 
 function normalizeQaRunProfile(value: string): QaRunProfile {
   const normalized = value.trim();
-  if (normalized === "smoke-ci" || normalized === "release") {
-    return normalized;
+  if (!normalized) {
+    throw new Error("--profile must be a non-empty taxonomy mapping profile id.");
   }
-  throw new Error(`--profile must be one of smoke-ci or release, got "${value}".`);
+  return normalized;
+}
+
+function assertQaRunProfileExists(
+  scorecardReport: { profiles: readonly { id: string }[] },
+  profile: string,
+) {
+  if (scorecardReport.profiles.some((candidate) => candidate.id === profile)) {
+    return;
+  }
+  const availableProfiles = scorecardReport.profiles.map((candidate) => candidate.id).join(", ");
+  const suffix = availableProfiles ? ` Available profiles: ${availableProfiles}.` : "";
+  throw new Error(
+    `qa run --profile ${profile} is not declared in taxonomy-mappings.yaml.${suffix}`,
+  );
 }
 
 function defaultQaRunProfileProviderMode(profile: QaRunProfile): QaProviderModeInput {
