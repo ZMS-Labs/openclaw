@@ -279,10 +279,18 @@ export function buildStatusUptimeLine(): string {
   return `⏱️ Uptime: gateway ${formatStatusUptimeDuration(gatewayUptimeMs)} · system ${formatStatusUptimeDuration(systemUptimeMs)}`;
 }
 
-async function resolveRuntimePluginHealthLine(): Promise<string> {
+async function resolveRuntimePluginHealthLine(params: {
+  cfg: OpenClawConfig;
+  workspaceDir: string;
+}): Promise<string> {
   try {
     const { collectRuntimePluginHealthSnapshot } = await loadStatusPluginHealthRuntime();
-    return formatCompactPluginHealthLine(collectRuntimePluginHealthSnapshot());
+    return formatCompactPluginHealthLine(
+      collectRuntimePluginHealthSnapshot({
+        config: params.cfg,
+        workspaceDir: params.workspaceDir,
+      }),
+    );
   } catch {
     return "⚠️ Plugins: health unavailable";
   }
@@ -532,7 +540,7 @@ export async function buildStatusText(params: BuildStatusTextParams): Promise<st
   const configuredDefaultModelLabel = `${configuredDefaultRef.provider}/${configuredDefaultRef.model}`;
   const pluginHealthLine = Object.hasOwn(params, "pluginHealthLineOverride")
     ? params.pluginHealthLineOverride
-    : await resolveRuntimePluginHealthLine();
+    : await resolveRuntimePluginHealthLine({ cfg, workspaceDir: statusWorkspaceDir });
   const { buildStatusMessage } = await loadStatusMessageRuntime();
   const explicitThinkingDefault =
     (agentConfig?.thinkingDefault as ThinkLevel | undefined) ??
