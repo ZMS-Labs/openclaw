@@ -36,10 +36,10 @@ const fetchWithRuntimeDispatcherMock = vi.hoisted(() => vi.fn());
 const saveRemoteMediaMock = vi.hoisted(() =>
   vi.fn(async (params: Parameters<typeof import("../media.runtime.js").saveRemoteMedia>[0]) => ({
     id: "saved-media-id",
-    path: `/tmp/${params.options.filePathHint ?? "slack-media"}`,
+    path: `/tmp/${params.filePathHint ?? "slack-media"}`,
     size: 10,
-    contentType: params.options.fallbackContentType,
-    fileName: params.options.filePathHint,
+    contentType: params.fallbackContentType,
+    fileName: params.filePathHint,
   })),
 );
 
