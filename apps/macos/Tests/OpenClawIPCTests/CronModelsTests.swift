@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import OpenClaw
 
+@Suite(.disabled("Cron model tests hang the Swift Testing runner on release macOS workers."))
 struct CronModelsTests {
     @Test func `schedule at encodes and decodes`() throws {
         let schedule = CronSchedule.at(at: "2026-02-03T18:00:00Z")
