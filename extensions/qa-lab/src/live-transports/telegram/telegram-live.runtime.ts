@@ -2005,7 +2005,10 @@ export async function runTelegramQaLive(params: {
     generatedAt: finishedAt,
     primaryModel,
     providerMode,
-    checks: scenarioResults,
+    checks: scenarioResults.map(({ standardId, ...check }) => ({
+      ...check,
+      coverageIds: standardId ? [`channels.telegram.${standardId}`] : undefined,
+    })),
     transportId: "telegram",
   });
   await fs.writeFile(
