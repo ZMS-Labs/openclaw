@@ -135,7 +135,11 @@ export function createMemoryIngestTool(options: MemoryIngestToolOptions) {
 
           let synced = false;
           if (manager.sync) {
-            await manager.sync({ reason: "ingest", force: true });
+            // Incremental sync: hash-skips every unchanged corpus file and embeds
+            // ONLY the file just written (~1s). force:true triggered a FULL
+            // re-embed of the entire corpus (283 files) and hung for minutes —
+            // the wrong knob ("rebuild everything" vs "index what I just wrote").
+            await manager.sync({ reason: "ingest" });
             synced = true;
           }
 
