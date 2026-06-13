@@ -6,14 +6,16 @@ import {
 } from "openclaw/plugin-sdk/channel-policy";
 import type {
   ChannelGroupPolicy,
+  ContextVisibilityMode,
   DmPolicy,
   GroupPolicy,
   OpenClawConfig,
 } from "openclaw/plugin-sdk/config-contracts";
+import { resolveChannelContextVisibilityMode } from "openclaw/plugin-sdk/context-visibility-runtime";
 import { resolveDefaultGroupPolicy } from "openclaw/plugin-sdk/runtime-group-policy";
-import { resolveGroupSessionKey } from "openclaw/plugin-sdk/session-store-runtime";
 import { resolveWhatsAppAccount, type ResolvedWhatsAppAccount } from "./accounts.js";
 import { getSelfIdentity, getSenderIdentity } from "./identity.js";
+import { resolveWhatsAppGroupConversationId } from "./inbound/group-conversation.js";
 import type { WebInboundMessage } from "./inbound/types.js";
 import { resolveWhatsAppRuntimeGroupPolicy } from "./runtime-group-policy.js";
 import { isSelfChatMode, normalizeE164 } from "./text-runtime.js";
@@ -25,6 +27,7 @@ export type ResolvedWhatsAppInboundPolicy = {
   configuredAllowFrom: string[];
   dmAllowFrom: string[];
   groupAllowFrom: string[];
+  contextVisibilityMode: ContextVisibilityMode;
   isSelfChat: boolean;
   providerMissingFallbackApplied: boolean;
   isSamePhone: (value?: string | null) => boolean;
@@ -38,16 +41,6 @@ function normalizeWhatsAppIngressPhone(value: string): string | null {
     return null;
   }
   return normalizeE164(trimmed);
-}
-
-function resolveGroupConversationId(conversationId: string): string {
-  return (
-    resolveGroupSessionKey({
-      From: conversationId,
-      ChatType: "group",
-      Provider: "whatsapp",
-    })?.id ?? conversationId
-  );
 }
 
 function maybeSamePhoneDmAllowFrom(params: {
@@ -106,6 +99,11 @@ export function resolveWhatsAppInboundPolicy(params: {
     groupPolicy,
     groups: account.groups,
   });
+  const contextVisibilityMode = resolveChannelContextVisibilityMode({
+    cfg: params.cfg,
+    channel: "whatsapp",
+    accountId: account.accountId,
+  });
   const isSamePhone = (value?: string | null) =>
     typeof value === "string" && typeof params.selfE164 === "string" && value === params.selfE164;
   return {
@@ -115,6 +113,7 @@ export function resolveWhatsAppInboundPolicy(params: {
     configuredAllowFrom,
     dmAllowFrom,
     groupAllowFrom,
+    contextVisibilityMode,
     isSelfChat: account.selfChatMode ?? isSelfChatMode(params.selfE164, configuredAllowFrom),
     providerMissingFallbackApplied,
     isSamePhone,
@@ -122,14 +121,14 @@ export function resolveWhatsAppInboundPolicy(params: {
       resolveChannelGroupPolicy({
         cfg: resolvedGroupCfg,
         channel: "whatsapp",
-        groupId: resolveGroupConversationId(conversationId),
+        groupId: resolveWhatsAppGroupConversationId(conversationId),
         hasGroupAllowFrom: groupAllowFrom.length > 0,
       }),
     resolveConversationRequireMention: (conversationId) =>
       resolveChannelGroupRequireMention({
         cfg: resolvedGroupCfg,
         channel: "whatsapp",
-        groupId: resolveGroupConversationId(conversationId),
+        groupId: resolveWhatsAppGroupConversationId(conversationId),
       }),
   };
 }
@@ -171,6 +170,7 @@ export async function resolveWhatsAppIngressAccess(params: {
     policy: {
       groupAllowFromFallbackToAllowFrom: false,
     },
+    providerMissingFallbackApplied: params.policy.providerMissingFallbackApplied,
     allowFrom: dmAllowFrom,
     groupAllowFrom: params.policy.groupAllowFrom,
     command: params.includeCommand === true ? {} : undefined,
