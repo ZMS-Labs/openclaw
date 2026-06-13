@@ -1400,6 +1400,7 @@ async function runTelegramQaScenarioStep(params: {
 async function runTelegramQaRttChecks(params: {
   driverOffset: number;
   driverToken: string;
+  env: NodeJS.ProcessEnv;
   groupId: string;
   latestSutMessageId?: number;
   observedMessages: TelegramObservedMessage[];
@@ -1449,7 +1450,6 @@ async function runTelegramQaRttChecks(params: {
       const rttMs = stepResult.matched.observedAtMs - stepResult.requestStartedAtMs;
       samples.push({
         status: "pass",
-        details: `RTT check ${index} matched in ${rttMs}ms`,
         rttMs,
       });
       passed += 1;
@@ -1457,7 +1457,6 @@ async function runTelegramQaRttChecks(params: {
       failures += 1;
       samples.push({
         status: "fail",
-        details: `RTT check ${index} failed: ${formatErrorMessage(error)}`,
       });
     }
     if (failures >= params.rttOptions.maxFailures) {
