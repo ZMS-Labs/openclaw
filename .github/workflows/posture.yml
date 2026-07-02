@@ -1,9 +1,48 @@
+# Governance posture gate (inlined copy of the fleet gate for a public repo).
+# Verifies the repo's own AGENTS.md carries the current Spine block by comparing its
+# inner-content sha256 to CANON (the canonical governance/spine.lock content_sha256,
+# re-pinned here when the Spine changes — callers pin this workflow by commit SHA).
+# ENFORCE PHASE: drift fails the build (warn phase ended per posture-ratchet.json, PR #39).
+# INLINED for openclaw: this repo is PUBLIC, and GitHub does not allow public repos
+# to call reusable workflows in private repos — so the fleet gate body is inlined
+# verbatim here. Keep in sync with zms-homelab posture-reusable.yml on Spine changes.
 name: posture
+
 on:
   push:
-  pull_request:
+    branches: [main]
+  pull_request: {}
+
 permissions:
   contents: read
+
 jobs:
-  posture:
-    uses: ZMS-Labs/zms-homelab/.github/workflows/posture-reusable.yml@c8b7bd5ab7741e1581d4ebe0eef274d32d4fd9d0
+  spine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Spine block currency (enforce)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re, hashlib, sys, pathlib
+          # Canonical Spine content hash (governance/spine.lock content_sha256, v4).
+          # Re-pin on Spine change; callers pin this workflow by commit SHA.
+          CANON = "04d4b1ede9640d8989ee8d58a752e6ac6166db49f5cf2d44dbb062e2c9ff94e5"
+          WARN = False  # ENFORCE (ratchet flip per posture-ratchet.json, PR #39; operator-consented)
+          # Regex MUST match scripts/governance/spine/contract.py _BLOCK_RE verbatim.
+          BLOCK = re.compile(r"<!-- ZMS-SPINE[^>]*-->\n(?P<inner>.*?)\n<!-- /ZMS-SPINE -->", re.DOTALL)
+          def fail(msg):
+              print(f"::warning title=Governance posture::{msg}")
+              sys.exit(0 if WARN else 1)
+          p = pathlib.Path("AGENTS.md")
+          if not p.exists():
+              fail("AGENTS.md absent — required Spine surface missing")
+          m = BLOCK.search(p.read_text(encoding="utf-8"))
+          if not m:
+              fail("AGENTS.md has no ZMS-SPINE block")
+          h = hashlib.sha256(m.group("inner").encode("utf-8")).hexdigest()
+          if h != CANON:
+              fail(f"AGENTS.md Spine block STALE (got {h[:12]}, want {CANON[:12]})")
+          print("posture: spine block current")
+          PY
