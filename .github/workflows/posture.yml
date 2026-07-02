@@ -1,0 +1,9 @@
+name: posture
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  posture:
+    uses: ZMS-Labs/zms-homelab/.github/workflows/posture-reusable.yml@d04303d6e6c8f7d5eb42085093a4c25824fc24da
