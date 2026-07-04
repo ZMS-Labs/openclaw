@@ -10,6 +10,7 @@ import { resolveMemoryBackendConfig } from "openclaw/plugin-sdk/memory-core-host
 import {
   definePluginEntry,
   type AnyAgentTool,
+  type OpenClawPluginApi,
   type OpenClawPluginToolContext,
 } from "openclaw/plugin-sdk/plugin-entry";
 import type { OpenKeyedStoreOptions } from "openclaw/plugin-sdk/plugin-state-runtime";
@@ -86,13 +87,34 @@ const MemoryGetSchema = {
   additionalProperties: false,
 } as const satisfies TSchema;
 
+const MemoryIngestSchema = {
+  type: "object",
+  properties: {
+    path: { type: "string" },
+    content: { type: "string" },
+    corpus: { type: "string" },
+  },
+  required: ["path", "content"],
+  additionalProperties: false,
+} as const satisfies TSchema;
+
+const DreamSchema = {
+  type: "object",
+  properties: {
+    phase: { type: "string", enum: ["all", "light", "rem", "deep"] },
+    scope: { type: "string" },
+  },
+  additionalProperties: false,
+} as const satisfies TSchema;
+
 function createLazyMemoryTool(params: {
   options: MemoryToolOptions;
   label: string;
-  name: "memory_search" | "memory_get";
+  name: string;
   description: string;
-  parameters: typeof MemorySearchSchema | typeof MemoryGetSchema;
-  load: (module: MemoryToolsModule, options: MemoryToolOptions) => AnyAgentTool | null;
+  parameters: TSchema;
+  unavailableError?: string;
+  load: (options: MemoryToolOptions) => Promise<AnyAgentTool | null>;
 }): AnyAgentTool | null {
   if (!hasMemoryToolContext(params.options)) {
     return null;
@@ -100,7 +122,7 @@ function createLazyMemoryTool(params: {
 
   let toolPromise: Promise<AnyAgentTool | null> | undefined;
   const loadTool = async () => {
-    toolPromise ??= loadMemoryToolsModule().then((module) => params.load(module, params.options));
+    toolPromise ??= params.load(params.options);
     return await toolPromise;
   };
 
@@ -115,7 +137,7 @@ function createLazyMemoryTool(params: {
         return jsonResult({
           disabled: true,
           unavailable: true,
-          error: "memory search unavailable",
+          error: params.unavailableError ?? "memory search unavailable",
         });
       }
       return await tool.execute(toolCallId, toolParams, signal, onUpdate);
@@ -131,7 +153,10 @@ function createLazyMemorySearchTool(options: MemoryToolOptions): AnyAgentTool | 
     description:
       "Mandatory recall step: semantically search MEMORY.md + memory/*.md (and optional session transcripts) before answering questions about prior work, decisions, dates, people, preferences, or todos. Optional `corpus=wiki` or `corpus=all` also searches registered compiled-wiki supplements. `corpus=memory` restricts hits to indexed memory files (excludes session transcript chunks from ranking). `corpus=sessions` restricts hits to indexed session transcripts (same visibility rules as session history tools). If response has disabled=true, memory retrieval is unavailable and should be surfaced to the user.",
     parameters: MemorySearchSchema,
-    load: (module, loadOptions) => module.createMemorySearchTool(loadOptions),
+    load: async (loadOptions) => {
+      const module = await loadMemoryToolsModule();
+      return module.createMemorySearchTool(loadOptions);
+    },
   });
 }
 
@@ -143,7 +168,45 @@ function createLazyMemoryGetTool(options: MemoryToolOptions): AnyAgentTool | nul
     description:
       "Safe exact excerpt read from MEMORY.md or memory/*.md. Defaults to a bounded excerpt when lines are omitted, includes truncation/continuation info when more content exists, and `corpus=wiki` reads from registered compiled-wiki supplements.",
     parameters: MemoryGetSchema,
-    load: (module, loadOptions) => module.createMemoryGetTool(loadOptions),
+    load: async (loadOptions) => {
+      const module = await loadMemoryToolsModule();
+      return module.createMemoryGetTool(loadOptions);
+    },
+  });
+}
+
+function createLazyMemoryIngestTool(options: MemoryToolOptions): AnyAgentTool | null {
+  return createLazyMemoryTool({
+    options,
+    label: "Memory Ingest",
+    name: "memory_ingest",
+    description:
+      "Write a markdown document into the agent's memory corpus (MEMORY.md or memory/*.md) and re-embed it so it becomes searchable via memory_search. `path` is the corpus-relative filename (must end in .md); a bare name is placed under `memory/` by default, `corpus=root` writes relative to the workspace root (e.g. MEMORY.md). `content` is the full markdown body to persist. After writing, the memory index is synced (force reindex) using the same embedding path as `openclaw memory index`. If response has disabled=true, memory ingest is unavailable.",
+    parameters: MemoryIngestSchema,
+    unavailableError: "memory ingest unavailable",
+    load: async (loadOptions) => {
+      const { createMemoryIngestTool } = await import("./src/tools.ingest.js");
+      return createMemoryIngestTool(loadOptions);
+    },
+  });
+}
+
+function createLazyDreamTool(
+  api: OpenClawPluginApi,
+  options: MemoryToolOptions,
+): AnyAgentTool | null {
+  return createLazyMemoryTool({
+    options,
+    label: "Dream",
+    name: "dream",
+    description:
+      'Run the real multi-phase memory dreaming consolidation engine (light, REM, deep) on demand. `phase` selects light|rem|deep|all (default all). `scope` selects which memory workspaces to consolidate: "fleet" (default) runs every configured agent\'s workspace, or pass an explicit agent id to run just that workspace. Light/REM stage candidate insights; deep promotes recurring short-term recalls into durable MEMORY.md entries and writes Dream Diary narratives. Returns a per-workspace summary.',
+    parameters: DreamSchema,
+    unavailableError: "memory dreaming unavailable",
+    load: async (loadOptions) => {
+      const { createDreamTool } = await import("./src/tools.dream.js");
+      return createDreamTool({ api, options: loadOptions });
+    },
   });
 }
 
@@ -205,6 +268,14 @@ export default definePluginEntry({
 
     api.registerTool((ctx) => createLazyMemoryGetTool(resolveMemoryToolOptions(ctx)), {
       names: ["memory_get"],
+    });
+
+    api.registerTool((ctx) => createLazyMemoryIngestTool(resolveMemoryToolOptions(ctx)), {
+      names: ["memory_ingest"],
+    });
+
+    api.registerTool((ctx) => createLazyDreamTool(api, resolveMemoryToolOptions(ctx)), {
+      names: ["dream"],
     });
 
     api.registerCommand({
