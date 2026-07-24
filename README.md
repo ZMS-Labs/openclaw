@@ -8,6 +8,8 @@
 
 <!-- ZMS-ESTATE:END -->
 
+ZMS fork provenance and the bounded overlay policy are recorded in [ZMS_UPSTREAM.md](ZMS_UPSTREAM.md). Upstream OpenClaw remains the primary product and authorship authority.
+
 <p align="center">
     <picture>
         <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text-dark.svg">
