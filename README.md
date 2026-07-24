@@ -1,5 +1,13 @@
 # 🦞 OpenClaw — Personal AI Assistant
 
+<!-- ZMS-ESTATE:BEGIN -->
+
+> **Estate status:** `maintenance` · **Purpose:** `mirror_or_packaging` · **Portfolio role:** `none`
+> **Canonical for:** zms-openclaw-governance-overlay
+> Lifecycle authority: `ZMS-Labs/zms-homelab/governance/estate.yaml`.
+
+<!-- ZMS-ESTATE:END -->
+
 <p align="center">
     <picture>
         <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text-dark.svg">
