@@ -2,9 +2,10 @@
 
 <!-- ZMS-ESTATE:BEGIN -->
 
-> **Estate status:** `maintenance` · **Purpose:** `mirror_or_packaging` · **Portfolio role:** `none`
-> **Canonical for:** zms-openclaw-governance-overlay
-> Lifecycle authority: `ZMS-Labs/zms-homelab/governance/estate.yaml`.
+> **Obligation:** `none` · **Stage:** `paused` · **Load-bearing:** `L0 — free`
+> **Purpose:** `fork_with_patch`
+> **Canonical for:** openclaw-memory-core-tools
+> Estate authority: `ZMS-Labs/zms-homelab/governance/estate.yaml`.
 
 <!-- ZMS-ESTATE:END -->
 
