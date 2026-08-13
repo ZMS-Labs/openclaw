@@ -2,7 +2,7 @@
 
 <!-- ZMS-ESTATE:BEGIN -->
 
-> **Obligation:** `none` · **Stage:** `paused` · **Load-bearing:** `L0 — free`
+> **Obligation:** `must operate` · **Stage:** `steady` · **Load-bearing:** `L4 — sole custodian`
 > **Purpose:** `fork_with_patch`
 > **Canonical for:** openclaw-memory-core-tools
 > Estate authority: `ZMS-Labs/zms-homelab/governance/estate.yaml`.
