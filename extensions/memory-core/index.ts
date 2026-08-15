@@ -93,8 +93,34 @@ const MemoryIngestSchema = {
     path: { type: "string" },
     content: { type: "string" },
     corpus: { type: "string" },
+    idempotencyKey: { type: "string", maxLength: 256 },
+    contentSha256: { type: "string", maxLength: 64 },
+    source: {
+      type: "object",
+      properties: {
+        artifactId: { type: "string", maxLength: 256 },
+        revision: { type: "string", maxLength: 128 },
+        scope: { type: "string", maxLength: 256 },
+        provenance: { type: "string", maxLength: 4096 },
+      },
+      additionalProperties: false,
+    },
+    indexTimeoutMs: { type: "integer", minimum: 100, maximum: 120000 },
   },
   required: ["path", "content"],
+  additionalProperties: false,
+} as const satisfies TSchema;
+
+const MemoryRemoveSchema = {
+  type: "object",
+  properties: {
+    path: { type: "string" },
+    corpus: { type: "string" },
+    idempotencyKey: { type: "string", maxLength: 256 },
+    reason: { type: "string", maxLength: 1024 },
+    indexTimeoutMs: { type: "integer", minimum: 100, maximum: 120000 },
+  },
+  required: ["path"],
   additionalProperties: false,
 } as const satisfies TSchema;
 
@@ -191,6 +217,22 @@ function createLazyMemoryIngestTool(options: MemoryToolOptions): AnyAgentTool | 
   });
 }
 
+function createLazyMemoryRemoveTool(options: MemoryToolOptions): AnyAgentTool | null {
+  return createLazyMemoryTool({
+    options,
+    label: "Memory Remove",
+    name: "memory_remove",
+    description:
+      "Remove one markdown document from the agent's memory corpus (corpus-relative `.md` path, same grammar as memory_ingest) and drop it from the index. Operator-gated: Fleet Orchestrator issues this call only after operator approval. Idempotent; receipts preserved as audit. If response has disabled=true, memory remove is unavailable.",
+    parameters: MemoryRemoveSchema,
+    unavailableError: "memory remove unavailable",
+    load: async (loadOptions) => {
+      const { createMemoryRemoveTool } = await import("./src/tools.remove.js");
+      return createMemoryRemoveTool(loadOptions);
+    },
+  });
+}
+
 function createLazyDreamTool(
   api: OpenClawPluginApi,
   options: MemoryToolOptions,
@@ -272,6 +314,10 @@ export default definePluginEntry({
 
     api.registerTool((ctx) => createLazyMemoryIngestTool(resolveMemoryToolOptions(ctx)), {
       names: ["memory_ingest"],
+    });
+
+    api.registerTool((ctx) => createLazyMemoryRemoveTool(resolveMemoryToolOptions(ctx)), {
+      names: ["memory_remove"],
     });
 
     api.registerTool((ctx) => createLazyDreamTool(api, resolveMemoryToolOptions(ctx)), {

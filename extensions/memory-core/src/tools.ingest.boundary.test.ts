@@ -65,6 +65,15 @@ function withSettleBound<T>(promise: Promise<T>, ms = INGEST_SETTLE_BOUND_MS): P
   });
 }
 
+function unwrapToolJson(raw: unknown): Record<string, unknown> {
+  const envelope = raw as { content?: Array<{ type?: string; text?: string }> };
+  const text = envelope?.content?.find((part) => part.type === "text")?.text;
+  if (typeof text === "string") {
+    return JSON.parse(text) as Record<string, unknown>;
+  }
+  return (raw as { result?: Record<string, unknown> }).result ?? (raw as Record<string, unknown>);
+}
+
 function syntheticMarkdownBody(index: number): string {
   const topic = [
     "cluster upgrades",
@@ -126,8 +135,20 @@ describe("memory_ingest populated-corpus hang boundaries", () => {
 
   afterEach(async () => {
     const { closeAllMemorySearchManagers } = await import("./memory/index.js");
-    await closeAllMemorySearchManagers();
-    await fs.rm(fixtureRoot, { recursive: true, force: true });
+    await closeAllMemorySearchManagers().catch(() => {});
+    // Best-effort cleanup: an abandoned-in-timeout manager may briefly hold the
+    // sqlite file on Windows; retry, then leave the temp artifact behind.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await fs.rm(fixtureRoot, { recursive: true, force: true });
+        break;
+      } catch (err) {
+        if (attempt === 2) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
   });
 
   async function buildIndexFirst(storePath: string): Promise<void> {
@@ -162,6 +183,9 @@ describe("memory_ingest populated-corpus hang boundaries", () => {
       tool.execute("ingest-hang-repro", {
         path: params.path,
         content: params.content,
+        ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
+        ...(params.contentSha256 ? { contentSha256: params.contentSha256 } : {}),
+        ...(params.indexTimeoutMs ? { indexTimeoutMs: params.indexTimeoutMs } : {}),
       }) as Promise<unknown>,
     );
     return raw as { result?: Record<string, unknown> } & Record<string, unknown>;
@@ -182,11 +206,19 @@ describe("memory_ingest populated-corpus hang boundaries", () => {
         storePath,
         path: "hang-repro-incremental.md",
         content: "# Incremental ingest under a stalled backend\n\nmarker: incremental-bound",
+        indexTimeoutMs: 2_000,
       });
 
-      const payload = (raw.result ?? raw) as Record<string, unknown>;
-      // The tool must not claim verified indexing while the backend is stalled.
-      expect(payload.synced === true && payload.indexed === true).toBe(false);
+      const payload = unwrapToolJson(raw);
+      // The file IS durable; indexing is honestly pending, never claimed done.
+      expect(payload.state).toBe("WRITTEN");
+      expect(payload.index_state).toBe("pending");
+      expect(payload.verified).toBe(false);
+      const onDisk = await fs.readFile(
+        path.join(workspaceDir, "memory", "hang-repro-incremental.md"),
+        "utf8",
+      );
+      expect(onDisk).toContain("marker: incremental-bound");
     },
   );
 
@@ -212,8 +244,193 @@ describe("memory_ingest populated-corpus hang boundaries", () => {
         model: "mock-embed-v2",
       });
 
-      const payload = (raw.result ?? raw) as Record<string, unknown>;
+      const payload = unwrapToolJson(raw);
       expect(typeof payload).toBe("object");
+    },
+  );
+});
+
+describe("memory_ingest receiver contract: idempotency, conflict, update, removal", () => {
+  let fixtureRoot: string;
+  let workspaceDir: string;
+
+  beforeEach(async () => {
+    hoisted.embedBatch.mockReset();
+    hoisted.embedBatch.mockImplementation(async (texts: string[]) => texts.map(() => [0, 1, 0]));
+    fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-ingest-contract-"));
+    workspaceDir = path.join(fixtureRoot, "workspace");
+    await fs.mkdir(path.join(workspaceDir, "memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDir, "memory", "seed.md"),
+      "# Seed\n\nseed content\n",
+      "utf-8",
+    );
+  });
+
+  afterEach(async () => {
+    const { closeAllMemorySearchManagers } = await import("./memory/index.js");
+    await closeAllMemorySearchManagers().catch(() => {});
+    await fs.rm(fixtureRoot, { recursive: true, force: true }).catch(() => {});
+  });
+
+  function contractCfg() {
+    return {
+      agents: {
+        defaults: {
+          workspace: workspaceDir,
+          memorySearch: {
+            provider: "openai",
+            model: "mock-embed",
+            store: {
+              path: path.join(fixtureRoot, "contract.sqlite"),
+              vector: { enabled: false },
+            },
+            chunking: { tokens: 4000, overlap: 0 },
+            sync: { watch: false, onSessionStart: false, onSearch: false },
+            query: { minScore: 0, hybrid: { enabled: false } },
+          },
+        },
+        list: [{ id: "main", default: true }],
+      },
+    } as never;
+  }
+
+  async function ingest(params: Record<string, unknown>) {
+    const { createMemoryIngestTool } = await import("./tools.ingest.js");
+    const tool = createMemoryIngestTool({ config: contractCfg() });
+    if (!tool) {
+      throw new Error("ingest tool unavailable");
+    }
+    return unwrapToolJson(await (tool.execute("contract", params) as Promise<unknown>));
+  }
+
+  async function remove(params: Record<string, unknown>) {
+    const { createMemoryRemoveTool } = await import("./tools.remove.js");
+    const tool = createMemoryRemoveTool({ config: contractCfg() });
+    if (!tool) {
+      throw new Error("remove tool unavailable");
+    }
+    return unwrapToolJson(await (tool.execute("contract-remove", params) as Promise<unknown>));
+  }
+
+  it(
+    "same idempotency key + same content replays the prior result without a second write",
+    { timeout: 30_000 },
+    async () => {
+      const first = await ingest({
+        path: "idem.md",
+        content: "# Idem\n\nfirst body\n",
+        idempotencyKey: "pub-001",
+      });
+      expect(first.state).toBe("WRITTEN");
+      expect(first.index_state).toBe("indexed");
+      expect(first.verified).toBe(true);
+
+      const receiptsRaw = await fs.readFile(
+        path.join(workspaceDir, "memory", ".ingest-receipts.json"),
+        "utf8",
+      );
+      const receiptsBefore = JSON.parse(receiptsRaw).receipts as Record<
+        string,
+        { attempts: number }
+      >;
+
+      const second = await ingest({
+        path: "idem.md",
+        content: "# Idem\n\nfirst body\n",
+        idempotencyKey: "pub-001",
+      });
+      expect(second.state).toBe("NOOP_DUPLICATE");
+      expect(second.replayed).toBe(true);
+      expect(second.attempts).toBe(2);
+      // No duplicate durable memory: file content unchanged, one file only.
+      const onDisk = await fs.readFile(path.join(workspaceDir, "memory", "idem.md"), "utf8");
+      expect(onDisk).toContain("first body");
+      const receiptsAfter = JSON.parse(
+        await fs.readFile(path.join(workspaceDir, "memory", ".ingest-receipts.json"), "utf8"),
+      ).receipts as Record<string, { attempts: number }>;
+      expect(receiptsAfter["pub-001"].attempts).toBe(receiptsBefore["pub-001"].attempts + 1);
+    },
+  );
+
+  it("same idempotency key + different content is a CONFLICT", { timeout: 30_000 }, async () => {
+    await ingest({ path: "idem-c.md", content: "# C\n\noriginal\n", idempotencyKey: "pub-002" });
+    const clash = await ingest({
+      path: "idem-c.md",
+      content: "# C\n\nmutated payload\n",
+      idempotencyKey: "pub-002",
+    });
+    expect(clash.state).toBe("CONFLICT");
+    // The conflicting payload must NOT have overwritten the original.
+    const onDisk = await fs.readFile(path.join(workspaceDir, "memory", "idem-c.md"), "utf8");
+    expect(onDisk).toContain("original");
+  });
+
+  it("mismatched contentSha256 is refused before any write", { timeout: 30_000 }, async () => {
+    const res = await ingest({
+      path: "sha-guard.md",
+      content: "# Sha\n\nbody\n",
+      contentSha256: "deadbeef",
+    });
+    expect(res.state).toBe("CONFLICT");
+    await expect(fs.readFile(path.join(workspaceDir, "memory", "sha-guard.md"))).rejects.toThrow();
+  });
+
+  it("same path with changed content is an explicit UPDATE", { timeout: 30_000 }, async () => {
+    await ingest({ path: "upd.md", content: "# Upd\n\nv1\n" });
+    const second = await ingest({ path: "upd.md", content: "# Upd\n\nv2 with new facts\n" });
+    expect(second.state).toBe("UPDATED");
+    expect(second.index_state).toBe("indexed");
+    const onDisk = await fs.readFile(path.join(workspaceDir, "memory", "upd.md"), "utf8");
+    expect(onDisk).toContain("v2 with new facts");
+  });
+
+  it("rejects absolute paths, non-markdown paths, and traversal", { timeout: 30_000 }, async () => {
+    const abs = await ingest({ path: "/etc/passwd.md", content: "x\n" });
+    expect(abs.disabled).toBe(true);
+    const txt = await ingest({ path: "notes.txt", content: "x\n" });
+    expect(txt.disabled).toBe(true);
+    const trav = await ingest({ path: "../escape.md", content: "x\n" });
+    expect(trav.disabled).toBe(true);
+  });
+
+  it(
+    "rejects invalid UTF-8 and oversized content before any durable effect",
+    { timeout: 30_000 },
+    async () => {
+      const badUtf8 = await ingest({ path: "surrogate.md", content: "bad \ud800 surrogate" });
+      expect(badUtf8.state).toBe("TERMINAL_FAILURE");
+      const oversize = await ingest({ path: "big.md", content: "x".repeat(256 * 1024 + 1) });
+      expect(oversize.state).toBe("TERMINAL_FAILURE");
+    },
+  );
+
+  it(
+    "memory_remove removes, is idempotent, protects receipts, and leaves other memory intact",
+    { timeout: 30_000 },
+    async () => {
+      await ingest({ path: "victim.md", content: "# Victim\n\nremove me\n" });
+      const removed = await remove({ path: "victim.md", idempotencyKey: "rm-001" });
+      expect(removed.state).toBe("REMOVED");
+      await expect(fs.readFile(path.join(workspaceDir, "memory", "victim.md"))).rejects.toThrow();
+
+      const again = await remove({ path: "victim.md", idempotencyKey: "rm-001" });
+      expect(["REMOVED", "NOOP_ALREADY_ABSENT"]).toContain(again.state);
+
+      const absent = await remove({ path: "never-existed.md" });
+      expect(absent.state).toBe("NOOP_ALREADY_ABSENT");
+
+      // Seed memory and the receipt store survive.
+      const seed = await fs.readFile(path.join(workspaceDir, "memory", "seed.md"), "utf8");
+      expect(seed).toContain("seed content");
+      const receipts = await fs.readFile(
+        path.join(workspaceDir, "memory", ".ingest-receipts.json"),
+        "utf8",
+      );
+      expect(JSON.parse(receipts).receipts["rm-001"].state).toBe("REMOVED");
+
+      const guard = await remove({ path: ".ingest-receipts.json" });
+      expect(guard.disabled).toBe(true);
     },
   );
 });

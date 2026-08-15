@@ -29,18 +29,27 @@ import {
 } from "openclaw/plugin-sdk/memory-core-host-status";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "typebox";
+import { acquireDreamLease, dreamLeasePath, releaseDreamLease } from "./dream-lease.js";
+import { runDreamingSweepPhases } from "./dreaming-phases.js";
 import {
   resolveShortTermPromotionDreamingConfig,
   runShortTermDreamingPromotionIfTriggered,
 } from "./dreaming.js";
-import { runDreamingSweepPhases } from "./dreaming-phases.js";
+import { raceWithDeadline } from "./ingest-contract.js";
 import { createMemoryTool } from "./tools.shared.js";
 
 type DreamPhase = "all" | "light" | "rem" | "deep";
 
+/** Default overall deadline for one workspace's dream execution. */
+const DREAM_DEFAULT_TIMEOUT_MS = 15 * 60_000;
+/** Default dream lease TTL; must comfortably exceed the execution deadline. */
+const DREAM_LEASE_TTL_MS = 20 * 60_000;
+
 export const DreamSchema = Type.Object({
   phase: Type.Optional(stringEnum(["all", "light", "rem", "deep"])),
   scope: Type.Optional(Type.String()),
+  /** Overall deadline per workspace for this dream call (bounded, capped). */
+  timeoutMs: Type.Optional(Type.Integer({ minimum: 10_000, maximum: 3_600_000 })),
 });
 
 type DreamToolOptions = {
@@ -60,6 +69,9 @@ type DreamWorkspaceResult = {
   ranDeep: boolean;
   lightRemSideEffect?: boolean;
   deepReason?: string;
+  lease?: "acquired" | "held";
+  leaseHeldBy?: string;
+  timedOut?: boolean;
   error?: string;
 };
 
@@ -87,10 +99,7 @@ function buildPhaseScopedPluginConfig(params: {
   const baseLight = asPlainRecord(basePhases.light);
   const baseRem = asPlainRecord(basePhases.rem);
 
-  const scopePhase = (
-    basePhase: Record<string, unknown>,
-    want: boolean,
-  ): Record<string, unknown> =>
+  const scopePhase = (basePhase: Record<string, unknown>, want: boolean): Record<string, unknown> =>
     want ? { ...basePhase } : { ...basePhase, enabled: false, limit: 0 };
 
   return {
@@ -158,6 +167,79 @@ function resolveScopedWorkspaces(params: { cfg: OpenClawConfig; scope: string })
   return matched.map((entry) => entry.workspaceDir);
 }
 
+/**
+ * Run the real engine for one workspace (extracted from the loop body so it
+ * can be raced against the per-workspace deadline).
+ */
+async function runDreamForWorkspace(params: {
+  workspaceDir: string;
+  phase: DreamPhase;
+  wantLight: boolean;
+  wantRem: boolean;
+  wantDeep: boolean;
+  basePluginConfig: Record<string, unknown> | undefined;
+  cfg: OpenClawConfig;
+  logger: DreamLogger;
+  subagent: OpenClawPluginApi["runtime"]["subagent"] | undefined;
+}): Promise<"deep" | "sweep" | null> {
+  if (params.wantDeep) {
+    // Real cron entry point, scoped to a single workspace by passing
+    // cfg=undefined (so it does not fan out across all workspaces). The engine
+    // couples a light+REM staging sweep ahead of deep promotion; that staging
+    // is non-destructive. For phase=deep it is a disclosed side effect.
+    const config = buildDeepConfig({ basePluginConfig: params.basePluginConfig, cfg: params.cfg });
+    await runShortTermDreamingPromotionIfTriggered({
+      cleanedBody: MEMORY_DREAMING_SYSTEM_EVENT_TEXT,
+      trigger: "cron",
+      workspaceDir: params.workspaceDir,
+      cfg: undefined,
+      config,
+      logger: params.logger,
+      subagent: config.enabled ? params.subagent : undefined,
+    });
+    return "deep";
+  }
+  // Light/REM-only: the real sweep engine with a phase-scoped plugin config so
+  // only the requested phase runs.
+  const pluginConfig = buildPhaseScopedPluginConfig({
+    basePluginConfig: params.basePluginConfig,
+    wantLight: params.wantLight,
+    wantRem: params.wantRem,
+  });
+  await runDreamingSweepPhases({
+    workspaceDir: params.workspaceDir,
+    pluginConfig,
+    cfg: params.cfg,
+    logger: params.logger,
+    subagent: params.subagent,
+    detachNarratives: false,
+  });
+  return "sweep";
+}
+
+/** Translate the run outcome into per-workspace result flags. */
+function applyRunOutcomeToEntry(
+  entry: DreamWorkspaceResult,
+  phase: DreamPhase,
+  wantLight: boolean,
+  wantRem: boolean,
+): void {
+  if (wantDeep) {
+    entry.ranDeep = true;
+    if (phase === "all") {
+      entry.ranLight = true;
+      entry.ranRem = true;
+    } else {
+      // phase === "deep": light/REM staging ran as an engine side effect
+      // (default config), not as a requested phase.
+      entry.lightRemSideEffect = true;
+    }
+  } else {
+    entry.ranLight = wantLight;
+    entry.ranRem = wantRem;
+  }
+}
+
 export function createDreamTool(params: { api: OpenClawPluginApi; options: DreamToolOptions }) {
   const { api } = params;
   return createMemoryTool({
@@ -177,11 +259,45 @@ export function createDreamTool(params: { api: OpenClawPluginApi; options: Dream
             ? (phaseRaw as DreamPhase)
             : "all";
         const scope = readStringParam(rawParams, "scope") ?? "fleet";
+        const timeoutRaw = rawParams["timeoutMs"];
+        const timeoutMs =
+          typeof timeoutRaw === "number" && Number.isFinite(timeoutRaw)
+            ? Math.min(Math.max(Math.floor(timeoutRaw), 10_000), 3_600_000)
+            : DREAM_DEFAULT_TIMEOUT_MS;
 
         const logger: DreamLogger = api.logger;
         const subagent = api.runtime?.subagent;
 
-        const basePluginConfig = resolveMemoryCorePluginConfig(cfg) ?? api.pluginConfig ?? undefined;
+        const resolvedPluginConfig = resolveMemoryCorePluginConfig(cfg);
+        const basePluginConfig =
+          (resolvedPluginConfig && Object.keys(resolvedPluginConfig).length > 0
+            ? resolvedPluginConfig
+            : undefined) ??
+          api.pluginConfig ??
+          undefined;
+
+        // Kill switch: an operator-set flag refuses NEW dream execution without
+        // a code change and survives restarts (durable config). Explicit tool
+        // runs respect it even though they otherwise force dreaming on for a
+        // single invocation. Both config surfaces are checked: the resolved
+        // plugin config and the raw cfg entry path.
+        const killSwitchActive =
+          asPlainRecord(asPlainRecord(basePluginConfig).dreaming).toolKillSwitch === true ||
+          asPlainRecord(
+            asPlainRecord(asPlainRecord(asPlainRecord(cfg.plugins?.entries)["memory-core"]).config)
+              .dreaming,
+          ).toolKillSwitch === true;
+        if (killSwitchActive) {
+          return jsonResult({
+            disabled: true,
+            reason:
+              "dream kill switch active (plugins.entries.memory-core.dreaming.toolKillSwitch)",
+            phase,
+            scope,
+            workspaceCount: 0,
+            workspaces: [],
+          });
+        }
 
         const workspaces = resolveScopedWorkspaces({ cfg, scope });
         if (workspaces.length === 0) {
@@ -207,57 +323,53 @@ export function createDreamTool(params: { api: OpenClawPluginApi; options: Dream
             ranRem: false,
             ranDeep: false,
           };
+          // Mutual exclusion per workspace: a live lease blocks (reported, not
+          // silently skipped); a stale lease is recovered by stealing.
+          const leaseOutcome = await acquireDreamLease({
+            workspaceDir,
+            ttlMs: Math.max(DREAM_LEASE_TTL_MS, timeoutMs + 5 * 60_000),
+          });
+          if (!leaseOutcome.acquired) {
+            entry.lease = "held";
+            entry.leaseHeldBy = leaseOutcome.lease.holder;
+            entry.error = `dream lease held by ${leaseOutcome.lease.holder} until ${leaseOutcome.lease.expires_at}`;
+            results.push(entry);
+            continue;
+          }
+          entry.lease = "acquired";
+          const leaseHolder = leaseOutcome.holder;
           try {
-            if (wantDeep) {
-              // Real cron entry point, scoped to a single workspace by passing
-              // cfg=undefined (so it does not fan out across all workspaces).
-              // The engine couples a light+REM staging sweep ahead of deep
-              // promotion; that staging is non-destructive. For phase=deep we
-              // flag it as a side effect rather than a requested phase.
-              const config = buildDeepConfig({ basePluginConfig, cfg });
-              const outcome = await runShortTermDreamingPromotionIfTriggered({
-                cleanedBody: MEMORY_DREAMING_SYSTEM_EVENT_TEXT,
-                trigger: "cron",
-                workspaceDir,
-                cfg: undefined,
-                config,
-                logger,
-                subagent: config.enabled ? subagent : undefined,
-              });
-              entry.ranDeep = true;
-              entry.deepReason = outcome?.reason;
-              if (phase === "all") {
-                entry.ranLight = true;
-                entry.ranRem = true;
-              } else {
-                // phase === "deep": light/REM staging ran as an engine side
-                // effect (default config), not as a requested phase.
-                entry.lightRemSideEffect = true;
-              }
+            const runOutcome = await raceWithDeadline({
+              label: "dream execution",
+              timeoutMs,
+              operation: async () => {
+                await runDreamForWorkspace({
+                  workspaceDir,
+                  phase,
+                  wantLight,
+                  wantRem,
+                  wantDeep,
+                  basePluginConfig,
+                  cfg,
+                  logger,
+                  subagent,
+                });
+                return null;
+              },
+            });
+            if (runOutcome.timedOut) {
+              entry.timedOut = true;
+              entry.error = `dream execution exceeded ${timeoutMs}ms deadline; lease released, workspace retryable`;
             } else {
-              // Light/REM-only: call the real sweep engine directly with a
-              // phase-scoped plugin config so only the requested phase runs.
-              const pluginConfig = buildPhaseScopedPluginConfig({
-                basePluginConfig,
-                wantLight,
-                wantRem,
-              });
-              await runDreamingSweepPhases({
-                workspaceDir,
-                pluginConfig,
-                cfg,
-                logger,
-                subagent,
-                detachNarratives: false,
-              });
-              entry.ranLight = wantLight;
-              entry.ranRem = wantRem;
+              applyRunOutcomeToEntry(entry, phase, wantLight, wantRem);
             }
           } catch (err) {
             entry.error = err instanceof Error ? err.message : String(err);
             logger.error(
               `memory-core: dream tool failed for workspace ${workspaceDir}: ${entry.error}`,
             );
+          } finally {
+            await releaseDreamLease({ workspaceDir, holder: leaseHolder });
           }
           results.push(entry);
         }
