@@ -257,6 +257,25 @@ RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,shar
       chown -R node:node "$PLAYWRIGHT_BROWSERS_PATH"; \
     fi
 
+# Optionally install kubectl for in-cluster fleet checks (ZMS overlay).
+# Build with: docker build --build-arg OPENCLAW_INSTALL_KUBECTL=1 ...
+# Pinned to the fleet k3s minor (v1.34.x); sha256 verified against the
+# publisher-served checksum at build time. Root-owned /usr/local/bin is
+# readable+executable by the non-root runtime user.
+ARG OPENCLAW_INSTALL_KUBECTL=""
+ARG OPENCLAW_KUBECTL_VERSION="v1.34.10"
+RUN if [ -n "$OPENCLAW_INSTALL_KUBECTL" ]; then \
+      set -eux; \
+      arch="$(dpkg --print-architecture)"; \
+      curl -fsSL "https://dl.k8s.io/release/${OPENCLAW_KUBECTL_VERSION}/bin/linux/${arch}/kubectl" \
+        -o /usr/local/bin/kubectl; \
+      curl -fsSL "https://dl.k8s.io/release/${OPENCLAW_KUBECTL_VERSION}/bin/linux/${arch}/kubectl.sha256" \
+        -o /tmp/kubectl.sha256; \
+      echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum -c -; \
+      chmod 0755 /usr/local/bin/kubectl; \
+      rm -f /tmp/kubectl.sha256; \
+    fi
+
 # Optionally install Docker CLI for sandbox container management.
 # Build with: docker build --build-arg OPENCLAW_INSTALL_DOCKER_CLI=1 ...
 # Adds ~50MB. Only the CLI is installed — no Docker daemon.
