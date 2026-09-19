@@ -37,3 +37,20 @@ This is a historical provenance boundary, not a fresh inventory of the current t
 ## Update and divergence policy
 
 Upstream updates are manual-review events. Compare from the pinned base, inspect product and overlay conflicts, preserve attribution and licensing, regenerate the lifecycle projection, and run upstream-required verification before advancing the pin. If provenance, governance, or verification cannot be preserved, keep the ZMS fork parked at the last reviewed revision; do not resolve the conflict by silently editing upstream-owned product code.
+
+## Visual documentation quality
+
+Apply the [shared visual documentation standard](https://github.com/ZMS-Labs/.github/blob/main/docs/documentation-standard.md#use-visuals-to-explain)
+to all new or changed visual headings, Mermaid diagrams, flowcharts, sequences,
+screenshots, and charts. Verify labels, arrows, grouping, order, and status
+against authoritative source; distinguish conceptual, planned, implemented, and
+observed evidence. Preserve authentic product screenshots and product-local
+design identity. Use generated images only for illustrative explanation, and
+keep exact diagrams editable.
+
+Inspect the rendered destination at desktop and narrow widths, with readable
+labels, a text equivalent, and light/dark presentation where supported. Record
+the source scope, actual semantic and render checks, and remaining limits in the
+change description. Use one bounded review and recheck affected content; this
+standard adds no mandatory independent-model gate. Adoption does not certify
+that historical visuals have been reviewed.
