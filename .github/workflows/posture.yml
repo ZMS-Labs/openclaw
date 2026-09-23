@@ -5,7 +5,7 @@
 # ENFORCE PHASE: drift fails the build (warn phase ended per posture-ratchet.json, PR #39).
 # INLINED for openclaw: this repo is PUBLIC, and GitHub does not allow public repos
 # to call reusable workflows in private repos — so the fleet gate body is inlined
-# verbatim here. Keep in sync with zms-homelab posture-reusable.yml on Spine changes.
+# verbatim here. Keep in sync with the private fleet gate's reusable workflow on Spine changes.
 name: posture
 
 on:
