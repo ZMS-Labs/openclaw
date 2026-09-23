@@ -2,14 +2,11 @@
 
 <!-- ZMS-ESTATE:BEGIN -->
 
-> **Obligation:** `must operate` · **Stage:** `steady` · **Load-bearing:** `L4 — sole custodian`
-> **Purpose:** `fork_with_patch`
-> **Canonical for:** openclaw-memory-core-tools
-> Estate authority: the ZMS fleet governance registry (private), `governance/estate.yaml`.
+Status: Maintained.
 
 <!-- ZMS-ESTATE:END -->
 
-ZMS fork provenance and the bounded overlay policy are recorded in [ZMS_UPSTREAM.md](ZMS_UPSTREAM.md). Upstream OpenClaw remains the primary product and authorship authority.
+This is my fork of OpenClaw, and I use it only a little today. On `main` it adds a few notes and files of mine, including one automated check that is switched off, and it changes none of OpenClaw's product code. Memory tools for OpenClaw are in an open pull request, [#1](https://github.com/ZMS-Labs/openclaw/pull/1), which is not merged. [ZMS_UPSTREAM.md](ZMS_UPSTREAM.md) lists what the fork adds and how upstream updates come in. Everything below this note is OpenClaw's own README, unchanged from the upstream version the fork is based on, so the logo, badges, sponsors and product claims belong to the OpenClaw project.
 
 <p align="center">
     <picture>
